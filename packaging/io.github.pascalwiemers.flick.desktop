@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Flick
+Comment=Quick note-taking scratchpad
+Exec=flick
+Icon=flick
+Categories=Utility;TextEditor;
+Terminal=false
+StartupWMClass=flick

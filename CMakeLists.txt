@@ -25,3 +25,11 @@ target_link_libraries(flick PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
 )
+
+install(TARGETS flick DESTINATION bin)
+install(FILES packaging/io.github.pascalwiemers.flick.desktop
+        DESTINATION share/applications)
+install(FILES packaging/flick.svg
+        DESTINATION share/icons/hicolor/scalable/apps)
+install(FILES packaging/io.github.pascalwiemers.flick.appdata.xml
+        DESTINATION share/metainfo)

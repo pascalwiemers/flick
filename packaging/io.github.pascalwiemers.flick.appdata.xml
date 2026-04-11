@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.pascalwiemers.flick</id>
+  <name>Flick</name>
+  <summary>Quick note-taking scratchpad</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Flick is a fast, minimal note-taking app for Linux. Swipe between notes, evaluate math expressions inline, and preview markdown.</p>
+  </description>
+  <launchable type="desktop-id">io.github.pascalwiemers.flick.desktop</launchable>
+  <url type="homepage">https://github.com/pascalwiemers/flick</url>
+</component>

@@ -1,0 +1,62 @@
+name: Build AppImage
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            qt6-base-dev \
+            qt6-declarative-dev \
+            libqt6quickcontrols2-6 \
+            qt6-quickcontrols2-dev \
+            libgl1-mesa-dev \
+            cmake g++ file \
+            fuse libfuse2
+
+      - name: Build
+        run: |
+          cmake -B build -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel $(nproc)
+
+      - name: Install to AppDir
+        run: DESTDIR=${{ github.workspace }}/AppDir cmake --install build
+
+      - name: Download linuxdeploy
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy*.AppImage
+
+      - name: Build AppImage
+        env:
+          QML_SOURCES_PATHS: ${{ github.workspace }}/src/qml
+        run: |
+          export QMAKE=$(which qmake6 || which qmake)
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --plugin qt \
+            --output appimage
+          mv Flick-*.AppImage flick-$(git describe --tags --always)-x86_64.AppImage
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flick-appimage
+          path: flick-*.AppImage
+
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: flick-*.AppImage
+          generate_release_notes: true

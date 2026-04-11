@@ -16,6 +16,11 @@ QVariantList MathEngine::results() const
     return m_results;
 }
 
+QStringList MathEngine::variableNames() const
+{
+    return m_variableNames;
+}
+
 // Check if a string is purely non-numeric text (not a valid expression)
 static bool isPureText(const QString &s)
 {
@@ -81,7 +86,7 @@ void MathEngine::evaluate(const QString &text)
         }
 
         // Comment line — does NOT break math block
-        if (line.startsWith("//")) {
+        if (line.startsWith("//") || line == "math:") {
             QVariantMap entry;
             entry["line"] = i;
             entry["text"] = QString();
@@ -220,6 +225,12 @@ void MathEngine::evaluate(const QString &text)
     if (m_results != newResults) {
         m_results = newResults;
         emit resultsChanged();
+    }
+
+    QStringList newVarNames = vars.keys();
+    if (m_variableNames != newVarNames) {
+        m_variableNames = newVarNames;
+        emit variableNamesChanged();
     }
 }
 

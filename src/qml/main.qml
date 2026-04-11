@@ -13,6 +13,7 @@ ApplicationWindow {
     title: "Flick"
 
     property int fontSize: 14
+    property bool markdownPreview: false
 
     Settings {
         id: windowSettings
@@ -120,11 +121,14 @@ ApplicationWindow {
                     Component.onCompleted: {
                         text = noteStore.currentText
                         forceActiveFocus()
+                        syntaxHighlighter.document = textArea.textDocument
                     }
 
                     onTextChanged: {
                         if (!root._syncing)
                             noteStore.currentText = text
+                        var hasMath = text.indexOf("math:") >= 0
+                        syntaxHighlighter.mathMode = hasMath
                         mathDebounce.restart()
                     }
 
@@ -157,6 +161,7 @@ ApplicationWindow {
 
             // --- Math result overlays (outside Flickable, clipped by panelA) ---
             Item {
+                visible: !root.markdownPreview
                 anchors.fill: parent
                 clip: true
 
@@ -223,6 +228,45 @@ ApplicationWindow {
                         color: "#1a1a1a"
                         opacity: 0.6
                     }
+                }
+            }
+        }
+
+        // --- Markdown preview overlay ---
+        Item {
+            id: previewPanel
+            width: parent.width
+            height: parent.height
+            visible: root.markdownPreview
+            z: 2
+
+            Rectangle {
+                anchors.fill: parent
+                color: "#1a1a1a"
+            }
+
+            Flickable {
+                id: flickablePreview
+                anchors.fill: parent
+                contentWidth: width
+                contentHeight: previewText.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff }
+
+                TextArea {
+                    id: previewText
+                    width: flickablePreview.width
+                    textFormat: TextEdit.MarkdownText
+                    wrapMode: TextEdit.Wrap
+                    readOnly: true
+                    color: "#e0e0e0"
+                    selectionColor: "#404040"
+                    selectedTextColor: "#ffffff"
+                    padding: 32
+                    font.family: root.monoFont
+                    font.pixelSize: root.fontSize
+                    background: Rectangle { color: "transparent" }
                 }
             }
         }
@@ -296,6 +340,8 @@ ApplicationWindow {
     function navigateTo(newIndex) {
         if (root._animating)
             return
+        if (root.markdownPreview)
+            root.markdownPreview = false
         if (noteStore.noteCount <= 1)
             return
 
@@ -324,11 +370,23 @@ ApplicationWindow {
         swipeAnim.start()
     }
 
+    Connections {
+        target: mathEngine
+        function onVariableNamesChanged() {
+            syntaxHighlighter.variableNames = mathEngine.variableNames
+        }
+    }
+
     // --- Math debounce timer ---
     Timer {
         id: mathDebounce
         interval: 50
-        onTriggered: mathEngine.evaluate(textArea.text)
+        onTriggered: {
+            if (textArea.text.indexOf("math:") >= 0)
+                mathEngine.evaluate(textArea.text)
+            else
+                mathEngine.evaluate("")
+        }
     }
 
     // Sync text from backend when it changes externally (e.g., after delete or AutoPaste)
@@ -423,6 +481,7 @@ ApplicationWindow {
     Shortcut {
         sequence: "Shift+Tab"
         onActivated: {
+            if (root.markdownPreview) root.markdownPreview = false
             root.gridVisible = !root.gridVisible
             if (root.gridVisible)
                 root._gridRevision++
@@ -455,6 +514,7 @@ ApplicationWindow {
         sequence: "Ctrl+N"
         onActivated: {
             if (root._animating) return
+            if (root.markdownPreview) root.markdownPreview = false
             root._animating = true
             // Load empty ghost for the new note
             ghostText.text = ""
@@ -495,6 +555,19 @@ ApplicationWindow {
         onActivated: autoPaste.active = !autoPaste.active
     }
 
+    Shortcut {
+        sequence: "Ctrl+M"
+        onActivated: {
+            if (root.gridVisible) return
+            root.markdownPreview = !root.markdownPreview
+            if (root.markdownPreview) {
+                previewText.text = textArea.text
+            } else {
+                textArea.forceActiveFocus()
+            }
+        }
+    }
+
     // --- AutoPaste indicator dot ---
     Rectangle {
         visible: autoPaste.active
@@ -503,6 +576,18 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.margins: 8
+        z: 20
+    }
+
+    // --- Markdown preview indicator dot ---
+    Rectangle {
+        visible: root.markdownPreview
+        width: 6; height: 6; radius: 3
+        color: "#4aff7f"
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.rightMargin: autoPaste.active ? 20 : 8
+        anchors.topMargin: 8
         z: 20
     }
 }

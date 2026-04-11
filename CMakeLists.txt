@@ -14,6 +14,7 @@ add_executable(flick
     src/notestore.cpp
     src/mathengine.cpp
     src/autopaste.cpp
+    src/syntaxhighlighter.cpp
     ${QML_RESOURCES}
 )
 

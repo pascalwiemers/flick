@@ -118,6 +118,18 @@ void NoteStore::deleteAllNotes()
     emit currentTextChanged();
 }
 
+void NoteStore::reload()
+{
+    m_notes.clear();
+    m_currentIndex = 0;
+    loadNotes();
+    if (m_notes.isEmpty())
+        m_notes.append(QString());
+    emit noteCountChanged();
+    emit currentIndexChanged();
+    emit currentTextChanged();
+}
+
 void NoteStore::loadNotes()
 {
     QDir dir(storagePath());

@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network)
 
 qt6_add_resources(QML_RESOURCES src/qml/qml.qrc)
 
@@ -16,6 +16,7 @@ add_executable(flick
     src/autopaste.cpp
     src/syntaxhighlighter.cpp
     src/markdownstyler.cpp
+    src/githubsync.cpp
     ${QML_RESOURCES}
 )
 
@@ -24,6 +25,7 @@ target_link_libraries(flick PRIVATE
     Qt6::Gui
     Qt6::Quick
     Qt6::QuickControls2
+    Qt6::Network
 )
 
 install(TARGETS flick DESTINATION bin)

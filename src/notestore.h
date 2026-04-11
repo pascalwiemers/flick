@@ -24,6 +24,7 @@ public:
     Q_INVOKABLE void deleteNote(int index);
     Q_INVOKABLE void deleteAllNotes();
     Q_INVOKABLE void appendText(const QString &text);
+    Q_INVOKABLE void reload();
 
 signals:
     void noteCountChanged();

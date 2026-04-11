@@ -7,6 +7,7 @@
 #include "autopaste.h"
 #include "syntaxhighlighter.h"
 #include "markdownstyler.h"
+#include "githubsync.h"
 
 int main(int argc, char *argv[])
 {
@@ -21,6 +22,7 @@ int main(int argc, char *argv[])
     AutoPaste autoPaste(&store);
     SyntaxHighlighter highlighter;
     MarkdownStyler markdownStyler;
+    GitHubSync githubSync;
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("noteStore", &store);
@@ -28,10 +30,19 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("autoPaste", &autoPaste);
     engine.rootContext()->setContextProperty("syntaxHighlighter", &highlighter);
     engine.rootContext()->setContextProperty("markdownStyler", &markdownStyler);
+    engine.rootContext()->setContextProperty("githubSync", &githubSync);
     engine.load(QUrl("qrc:/qml/main.qml"));
 
     if (engine.rootObjects().isEmpty())
         return 1;
+
+    QObject::connect(&githubSync, &GitHubSync::notesRestored, [&store]() {
+        store.reload();
+    });
+
+    QObject::connect(&app, &QGuiApplication::aboutToQuit, [&githubSync]() {
+        githubSync.syncOnQuit();
+    });
 
     return app.exec();
 }

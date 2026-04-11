@@ -8,12 +8,26 @@ ApplicationWindow {
     visible: true
     width: 520
     height: 400
-    color: "#1a1a1a"
+    color: bgColor
     flags: Qt.FramelessWindowHint | Qt.Window
     title: "Flick"
 
     property int fontSize: 14
     property bool markdownPreview: false
+    property bool darkMode: true
+
+    // --- Theme colors ---
+    readonly property color bgColor:        darkMode ? "#1a1a1a" : "#f5f5f5"
+    readonly property color textColor:      darkMode ? "#e0e0e0" : "#1a1a1a"
+    readonly property color dimTextColor:   darkMode ? "#555555" : "#aaaaaa"
+    readonly property color selectionColor: darkMode ? "#404040" : "#b0d0ff"
+    readonly property color borderColor:    darkMode ? "#333333" : "#d0d0d0"
+    readonly property color surfaceColor:   darkMode ? "#222222" : "#e8e8e8"
+    readonly property color hoverColor:     darkMode ? "#333333" : "#d8d8d8"
+    readonly property color activeSurface:  darkMode ? "#2a2a2a" : "#e0e0e0"
+    readonly property color activeBorder:   darkMode ? "#444444" : "#bbbbbb"
+    readonly property color inactiveBorder: darkMode ? "#2f2f2f" : "#d5d5d5"
+    readonly property color accentColor:    "#4a9eff"
 
     Settings {
         id: windowSettings
@@ -22,6 +36,7 @@ ApplicationWindow {
         property alias width: root.width
         property alias height: root.height
         property alias fontSize: root.fontSize
+        property alias darkMode: root.darkMode
     }
 
     // --- Font helper ---
@@ -109,9 +124,9 @@ ApplicationWindow {
                     width: flickableA.width
                     textFormat: TextEdit.PlainText
                     wrapMode: TextEdit.Wrap
-                    color: "#e0e0e0"
-                    selectionColor: "#404040"
-                    selectedTextColor: "#ffffff"
+                    color: root.textColor
+                    selectionColor: root.selectionColor
+                    selectedTextColor: darkMode ? "#ffffff" : "#000000"
                     padding: 32
                     font.family: root.monoFont
                     font.pixelSize: root.fontSize
@@ -180,7 +195,7 @@ ApplicationWindow {
                             visible: modelData.isSeparator
                             width: 80
                             height: 1
-                            color: "#333333"
+                            color: root.borderColor
                             x: panelA.width - width - 32
                             y: parent.scrollY + parent.lineRect.height + 2
                         }
@@ -225,7 +240,7 @@ ApplicationWindow {
                         y: startRect.y - flickableA.contentY
                         width: panelA.width
                         height: Math.max(endRect.y + endRect.height - startRect.y, startRect.height)
-                        color: "#1a1a1a"
+                        color: root.bgColor
                         opacity: 0.6
                     }
                 }
@@ -242,7 +257,7 @@ ApplicationWindow {
 
             Rectangle {
                 anchors.fill: parent
-                color: "#1a1a1a"
+                color: root.bgColor
             }
 
             Flickable {
@@ -260,9 +275,9 @@ ApplicationWindow {
                     textFormat: TextEdit.MarkdownText
                     wrapMode: TextEdit.Wrap
                     readOnly: true
-                    color: "#e0e0e0"
-                    selectionColor: "#404040"
-                    selectedTextColor: "#ffffff"
+                    color: root.textColor
+                    selectionColor: root.selectionColor
+                    selectedTextColor: darkMode ? "#ffffff" : "#000000"
                     padding: 32
                     font.family: root.monoFont
                     font.pixelSize: root.fontSize
@@ -279,7 +294,7 @@ ApplicationWindow {
                                 y: modelData.y + previewText.padding
                                 width: 3
                                 height: modelData.height
-                                color: "#4a9eff"
+                                color: root.accentColor
                                 radius: 1
                             }
 
@@ -289,7 +304,7 @@ ApplicationWindow {
                                 y: modelData.y + previewText.padding
                                 width: previewText.width - previewText.padding * 2 - (modelData.level - 1) * 16 - 6
                                 height: modelData.height
-                                color: "#4a9eff"
+                                color: root.accentColor
                                 opacity: 0.06
                                 radius: 2
                             }
@@ -317,7 +332,7 @@ ApplicationWindow {
                     id: ghostText
                     width: parent.width
                     wrapMode: Text.Wrap
-                    color: "#e0e0e0"
+                    color: root.textColor
                     padding: 32
                     font.family: root.monoFont
                     font.pixelSize: root.fontSize
@@ -447,7 +462,7 @@ ApplicationWindow {
         id: gridOverlay
         anchors.fill: parent
         z: 10
-        color: "#1a1a1a"
+        color: root.bgColor
         visible: gridVisible
         opacity: gridVisible ? 1 : 0
 
@@ -470,8 +485,8 @@ ApplicationWindow {
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: 6
-                    color: index === noteStore.currentIndex ? "#2a2a2a" : "#222222"
-                    border.color: index === noteStore.currentIndex ? "#444444" : "#2f2f2f"
+                    color: index === noteStore.currentIndex ? root.activeSurface : root.surfaceColor
+                    border.color: index === noteStore.currentIndex ? root.activeBorder : root.inactiveBorder
                     border.width: 1
                     radius: 4
                     clip: true
@@ -481,7 +496,7 @@ ApplicationWindow {
                         anchors.margins: 12
                         readonly property string noteText: root._gridRevision, noteStore.getText(index)
                         text: noteText || "(empty)"
-                        color: noteText ? "#e0e0e0" : "#555555"
+                        color: noteText ? root.textColor : root.dimTextColor
                         font.family: root.monoFont
                         font.pixelSize: 11
                         wrapMode: Text.Wrap
@@ -508,14 +523,7 @@ ApplicationWindow {
 
     Shortcut {
         sequence: "Shift+Tab"
-        onActivated: {
-            if (root.markdownPreview) root.markdownPreview = false
-            root.gridVisible = !root.gridVisible
-            if (root.gridVisible)
-                root._gridRevision++
-            else
-                textArea.forceActiveFocus()
-        }
+        onActivated: root.toggleGridOverview()
     }
 
     // --- Ctrl+Wheel to navigate notes ---
@@ -537,22 +545,164 @@ ApplicationWindow {
         }
     }
 
+    // --- Helper functions ---
+    function createNewNote() {
+        if (root._animating) return
+        if (root.markdownPreview) root.markdownPreview = false
+        root._animating = true
+        ghostText.text = ""
+        noteStore.createNote()
+        swipeAnim.direction = false
+        root._pendingIndex = 0
+        swipeAnim.start()
+    }
+
+    function toggleMarkdownPreview() {
+        if (root.gridVisible) return
+        root.markdownPreview = !root.markdownPreview
+        if (root.markdownPreview) {
+            previewText.text = textArea.text
+            markdownStyler.styleDocument(previewText.textDocument)
+        } else {
+            textArea.forceActiveFocus()
+        }
+    }
+
+    function toggleGridOverview() {
+        if (root.markdownPreview) root.markdownPreview = false
+        root.gridVisible = !root.gridVisible
+        if (root.gridVisible)
+            root._gridRevision++
+        else
+            textArea.forceActiveFocus()
+    }
+
+    // --- Right-click context menu ---
+    component StyledMenuItem: MenuItem {
+        id: smi
+        contentItem: Text {
+            text: smi.text
+            color: root.textColor
+            font.family: root.monoFont
+            font.pixelSize: 13
+            leftPadding: smi.checkable ? 24 : 8
+            rightPadding: 16
+            verticalAlignment: Text.AlignVCenter
+        }
+        indicator: Rectangle {
+            visible: smi.checkable
+            x: 6
+            y: (smi.height - height) / 2
+            width: 12; height: 12; radius: 2
+            color: "transparent"
+            border.color: root.dimTextColor
+            Rectangle {
+                anchors.centerIn: parent
+                width: 8; height: 8; radius: 1
+                color: root.accentColor
+                visible: smi.checked
+            }
+        }
+        background: Rectangle {
+            color: smi.highlighted ? root.hoverColor : "transparent"
+        }
+    }
+
+    component StyledMenuSeparator: MenuSeparator {
+        contentItem: Rectangle {
+            implicitHeight: 1
+            color: root.borderColor
+        }
+    }
+
+    Menu {
+        id: contextMenu
+
+        background: Rectangle {
+            implicitWidth: 180
+            color: root.surfaceColor
+            border.color: root.borderColor
+            border.width: 1
+            radius: 4
+        }
+
+        StyledMenuItem {
+            text: "New Note"
+            onTriggered: root.createNewNote()
+        }
+        StyledMenuItem {
+            text: "Delete Note"
+            onTriggered: noteStore.deleteNote(noteStore.currentIndex)
+        }
+        StyledMenuItem {
+            text: "Grid Overview"
+            onTriggered: root.toggleGridOverview()
+        }
+        StyledMenuSeparator {}
+        StyledMenuItem {
+            text: "Markdown Preview"
+            checkable: true
+            checked: root.markdownPreview
+            onTriggered: root.toggleMarkdownPreview()
+        }
+        StyledMenuItem {
+            text: "AutoPaste"
+            checkable: true
+            checked: autoPaste.active
+            onTriggered: autoPaste.active = !autoPaste.active
+        }
+        StyledMenuSeparator {}
+        StyledMenuItem {
+            text: "Increase Font Size"
+            onTriggered: root.fontSize = Math.min(48, root.fontSize + 2)
+        }
+        StyledMenuItem {
+            text: "Decrease Font Size"
+            onTriggered: root.fontSize = Math.max(8, root.fontSize - 2)
+        }
+        StyledMenuSeparator {}
+        StyledMenuItem {
+            text: githubSync.authenticated ? "Sync Now" : "Connect GitHub"
+            onTriggered: {
+                if (githubSync.authenticated)
+                    githubSync.sync()
+                else
+                    githubSync.startAuth()
+            }
+        }
+        StyledMenuItem {
+            visible: githubSync.authenticated
+            height: visible ? implicitHeight : 0
+            text: "Disconnect GitHub"
+            onTriggered: githubSync.logout()
+        }
+        StyledMenuSeparator {}
+        StyledMenuItem {
+            text: "Dark Mode"
+            checkable: true
+            checked: root.darkMode
+            onTriggered: root.darkMode = !root.darkMode
+        }
+        StyledMenuSeparator {}
+        StyledMenuItem {
+            text: "Quit"
+            onTriggered: Qt.quit()
+        }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        z: 5
+        acceptedButtons: Qt.RightButton
+        onClicked: function(mouse) {
+            contextMenu.popup()
+        }
+    }
+
     // --- Keyboard shortcuts ---
     Shortcut {
         sequence: "Ctrl+N"
-        onActivated: {
-            if (root._animating) return
-            if (root.markdownPreview) root.markdownPreview = false
-            root._animating = true
-            // Load empty ghost for the new note
-            ghostText.text = ""
-            noteStore.createNote()
-            // createNote sets index to 0 — text is already synced
-            // Animate: new note slides in from the left
-            swipeAnim.direction = false
-            root._pendingIndex = 0
-            swipeAnim.start()
-        }
+        onActivated: root.createNewNote()
     }
     Shortcut {
         sequence: "Ctrl+W"
@@ -585,15 +735,19 @@ ApplicationWindow {
 
     Shortcut {
         sequence: "Ctrl+M"
+        onActivated: root.toggleMarkdownPreview()
+    }
+    Shortcut {
+        sequence: "Ctrl+D"
+        onActivated: root.darkMode = !root.darkMode
+    }
+    Shortcut {
+        sequence: "Ctrl+G"
         onActivated: {
-            if (root.gridVisible) return
-            root.markdownPreview = !root.markdownPreview
-            if (root.markdownPreview) {
-                previewText.text = textArea.text
-                markdownStyler.styleDocument(previewText.textDocument)
-            } else {
-                textArea.forceActiveFocus()
-            }
+            if (githubSync.authenticated)
+                githubSync.sync()
+            else
+                githubSync.startAuth()
         }
     }
 
@@ -601,7 +755,7 @@ ApplicationWindow {
     Rectangle {
         visible: autoPaste.active
         width: 6; height: 6; radius: 3
-        color: "#4a9eff"
+        color: root.accentColor
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.margins: 8
@@ -618,5 +772,155 @@ ApplicationWindow {
         anchors.rightMargin: autoPaste.active ? 20 : 8
         anchors.topMargin: 8
         z: 20
+    }
+
+    // --- GitHub sync indicator dot ---
+    Rectangle {
+        visible: githubSync.authenticated
+        width: 6; height: 6; radius: 3
+        color: githubSync.status === "syncing" ? "#ffaa4a" : "#4aff7f"
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.rightMargin: {
+            var offset = 8
+            if (autoPaste.active) offset += 12
+            if (root.markdownPreview) offset += 12
+            return offset
+        }
+        anchors.topMargin: 8
+        z: 20
+    }
+
+    // --- GitHub sync debounce timer ---
+    Timer {
+        id: syncDebounce
+        interval: 30000
+        onTriggered: {
+            if (githubSync.authenticated)
+                githubSync.sync()
+        }
+    }
+
+    Connections {
+        target: noteStore
+        function onCurrentTextChanged() {
+            if (githubSync.authenticated)
+                syncDebounce.restart()
+        }
+        function onNoteCountChanged() {
+            if (githubSync.authenticated)
+                syncDebounce.restart()
+        }
+    }
+
+    // --- GitHub auth overlay ---
+    Rectangle {
+        id: authOverlay
+        anchors.fill: parent
+        z: 50
+        visible: githubSync.status === "authenticating" && githubSync.userCode !== ""
+        color: Qt.rgba(0, 0, 0, 0.8)
+
+        MouseArea { anchors.fill: parent }
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: 320
+            height: 200
+            radius: 12
+            color: root.surfaceColor
+            border.color: root.borderColor
+            border.width: 1
+
+            Column {
+                anchors.centerIn: parent
+                spacing: 16
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Enter this code on GitHub:"
+                    color: root.dimTextColor
+                    font.family: root.monoFont
+                    font.pixelSize: 13
+                }
+
+                Rectangle {
+                    id: codeBox
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: codeText.implicitWidth + 24
+                    height: codeText.implicitHeight + 12
+                    radius: 6
+                    color: root.hoverColor
+                    border.color: root.borderColor
+
+                    property bool copied: false
+
+                    Text {
+                        id: codeText
+                        anchors.centerIn: parent
+                        text: githubSync.userCode
+                        color: root.accentColor
+                        font.family: root.monoFont
+                        font.pixelSize: 32
+                        font.bold: true
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            githubSync.copyToClipboard(githubSync.userCode)
+                            codeBox.copied = true
+                            copiedResetTimer.restart()
+                        }
+                    }
+
+                    Timer {
+                        id: copiedResetTimer
+                        interval: 2000
+                        onTriggered: codeBox.copied = false
+                    }
+                }
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: codeBox.copied ? "Copied!" : "Click to copy"
+                    color: codeBox.copied ? root.accentColor : root.dimTextColor
+                    font.family: root.monoFont
+                    font.pixelSize: 11
+                }
+
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Waiting for authorization..."
+                    color: root.dimTextColor
+                    font.family: root.monoFont
+                    font.pixelSize: 12
+                }
+
+                Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: 80
+                    height: 28
+                    radius: 4
+                    color: root.hoverColor
+                    border.color: root.borderColor
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Cancel"
+                        color: root.textColor
+                        font.family: root.monoFont
+                        font.pixelSize: 12
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: githubSync.cancelAuth()
+                    }
+                }
+            }
+        }
     }
 }

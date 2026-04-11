@@ -12,12 +12,15 @@ ApplicationWindow {
     flags: Qt.FramelessWindowHint | Qt.Window
     title: "Flick"
 
+    property int fontSize: 14
+
     Settings {
         id: windowSettings
         property alias x: root.x
         property alias y: root.y
         property alias width: root.width
         property alias height: root.height
+        property alias fontSize: root.fontSize
     }
 
     // --- Font helper ---
@@ -110,7 +113,7 @@ ApplicationWindow {
                     selectedTextColor: "#ffffff"
                     padding: 32
                     font.family: root.monoFont
-                    font.pixelSize: 14
+                    font.pixelSize: root.fontSize
                     background: Rectangle { color: "transparent" }
                     focus: true
 
@@ -122,6 +125,98 @@ ApplicationWindow {
                     onTextChanged: {
                         if (!root._syncing)
                             noteStore.currentText = text
+                        mathDebounce.restart()
+                    }
+
+                    // Helper: get character position of start of line N
+                    function lineStartPos(lineIndex) {
+                        var t = text
+                        var pos = 0
+                        for (var i = 0; i < lineIndex; i++) {
+                            var nl = t.indexOf('\n', pos)
+                            if (nl < 0) return t.length
+                            pos = nl + 1
+                        }
+                        return pos
+                    }
+
+                    // Helper: get character position of end of line N (before \n)
+                    function lineEndPos(lineIndex) {
+                        var t = text
+                        var pos = 0
+                        for (var i = 0; i < lineIndex; i++) {
+                            var nl = t.indexOf('\n', pos)
+                            if (nl < 0) return t.length
+                            pos = nl + 1
+                        }
+                        var nl = t.indexOf('\n', pos)
+                        return nl < 0 ? t.length : nl
+                    }
+                }
+            }
+
+            // --- Math result overlays (outside Flickable, clipped by panelA) ---
+            Item {
+                anchors.fill: parent
+                clip: true
+
+                Repeater {
+                    model: mathEngine.results
+
+                    Item {
+                        visible: !modelData.isComment
+                        property int lineIdx: modelData.line
+                        property rect lineRect: textArea.positionToRectangle(
+                            textArea.lineEndPos(lineIdx))
+                        property real scrollY: lineRect.y - flickableA.contentY
+
+                        // Separator line for running totals
+                        Rectangle {
+                            visible: modelData.isSeparator
+                            width: 80
+                            height: 1
+                            color: "#333333"
+                            x: panelA.width - width - 32
+                            y: parent.scrollY + parent.lineRect.height + 2
+                        }
+
+                        // Result text or total
+                        Text {
+                            visible: modelData.text !== "" && !modelData.isSeparator
+                            text: modelData.text
+                            color: modelData.color
+                            font.family: root.monoFont
+                            font.pixelSize: root.fontSize
+                            font.italic: modelData.isTotal
+
+                            x: panelA.width - width - 32
+                            y: {
+                                if (modelData.isTotal)
+                                    return parent.scrollY + parent.lineRect.height + 6
+                                return parent.scrollY
+                            }
+                        }
+                    }
+                }
+
+                // Comment dimming overlays
+                Repeater {
+                    model: mathEngine.results
+
+                    Rectangle {
+                        visible: modelData.isComment
+                        property int lineIdx: modelData.line
+                        property rect startRect: textArea.positionToRectangle(
+                            textArea.lineStartPos(lineIdx))
+                        property rect endRect: textArea.positionToRectangle(
+                            textArea.lineEndPos(lineIdx))
+
+                        x: 0
+                        y: startRect.y - flickableA.contentY
+                        width: panelA.width
+                        height: Math.max(endRect.y + endRect.height - startRect.y, startRect.height)
+                        color: "#1a1a1a"
+                        opacity: 0.6
                     }
                 }
             }
@@ -148,7 +243,7 @@ ApplicationWindow {
                     color: "#e0e0e0"
                     padding: 32
                     font.family: root.monoFont
-                    font.pixelSize: 14
+                    font.pixelSize: root.fontSize
                 }
             }
         }
@@ -187,6 +282,7 @@ ApplicationWindow {
             panelB.visible = false
             textArea.forceActiveFocus()
             root._animating = false
+            mathDebounce.restart()
         }
     }
 
@@ -223,14 +319,24 @@ ApplicationWindow {
         swipeAnim.start()
     }
 
-    // Sync text from backend when it changes externally (e.g., after delete)
+    // --- Math debounce timer ---
+    Timer {
+        id: mathDebounce
+        interval: 50
+        onTriggered: mathEngine.evaluate(textArea.text)
+    }
+
+    // Sync text from backend when it changes externally (e.g., after delete or AutoPaste)
     Connections {
         target: noteStore
         function onCurrentTextChanged() {
             if (!root._syncing && textArea.text !== noteStore.currentText) {
+                var pos = textArea.cursorPosition
                 root._syncing = true
                 textArea.text = noteStore.currentText
                 root._syncing = false
+                textArea.cursorPosition = Math.min(pos, textArea.text.length)
+                mathDebounce.restart()
             }
         }
         function onNoteCountChanged() {
@@ -238,6 +344,7 @@ ApplicationWindow {
             textArea.text = noteStore.currentText
             root._syncing = false
             textArea.forceActiveFocus()
+            mathDebounce.restart()
         }
     }
 
@@ -369,5 +476,28 @@ ApplicationWindow {
     Shortcut {
         sequence: "Ctrl+Q"
         onActivated: Qt.quit()
+    }
+    Shortcut {
+        sequence: "Ctrl+="
+        onActivated: root.fontSize = Math.min(48, root.fontSize + 2)
+    }
+    Shortcut {
+        sequence: "Ctrl+-"
+        onActivated: root.fontSize = Math.max(8, root.fontSize - 2)
+    }
+    Shortcut {
+        sequence: "Ctrl+Shift+V"
+        onActivated: autoPaste.active = !autoPaste.active
+    }
+
+    // --- AutoPaste indicator dot ---
+    Rectangle {
+        visible: autoPaste.active
+        width: 6; height: 6; radius: 3
+        color: "#4a9eff"
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: 8
+        z: 20
     }
 }

@@ -12,6 +12,8 @@ qt6_add_resources(QML_RESOURCES src/qml/qml.qrc)
 add_executable(flick
     src/main.cpp
     src/notestore.cpp
+    src/mathengine.cpp
+    src/autopaste.cpp
     ${QML_RESOURCES}
 )
 

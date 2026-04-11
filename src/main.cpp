@@ -3,6 +3,8 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include "notestore.h"
+#include "mathengine.h"
+#include "autopaste.h"
 
 int main(int argc, char *argv[])
 {
@@ -13,9 +15,13 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle("Basic");
 
     NoteStore store;
+    MathEngine mathEngine;
+    AutoPaste autoPaste(&store);
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("noteStore", &store);
+    engine.rootContext()->setContextProperty("mathEngine", &mathEngine);
+    engine.rootContext()->setContextProperty("autoPaste", &autoPaste);
     engine.load(QUrl("qrc:/qml/main.qml"));
 
     if (engine.rootObjects().isEmpty())

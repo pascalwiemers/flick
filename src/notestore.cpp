@@ -93,6 +93,18 @@ void NoteStore::deleteNote(int index)
     emit currentTextChanged();
 }
 
+void NoteStore::appendText(const QString &text)
+{
+    if (m_currentIndex < 0 || m_currentIndex >= m_notes.size())
+        return;
+    if (m_notes[m_currentIndex].isEmpty())
+        m_notes[m_currentIndex] = text;
+    else
+        m_notes[m_currentIndex] += "\n" + text;
+    emit currentTextChanged();
+    saveSingle(m_currentIndex);
+}
+
 void NoteStore::deleteAllNotes()
 {
     QDir dir(storagePath());

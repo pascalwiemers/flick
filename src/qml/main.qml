@@ -267,6 +267,34 @@ ApplicationWindow {
                     font.family: root.monoFont
                     font.pixelSize: root.fontSize
                     background: Rectangle { color: "transparent" }
+
+                    // Blockquote background + left bar overlays
+                    Repeater {
+                        model: markdownStyler.regions
+
+                        Item {
+                            // Left accent bar
+                            Rectangle {
+                                x: previewText.padding + (modelData.level - 1) * 16
+                                y: modelData.y + previewText.padding
+                                width: 3
+                                height: modelData.height
+                                color: "#4a9eff"
+                                radius: 1
+                            }
+
+                            // Background tint
+                            Rectangle {
+                                x: previewText.padding + (modelData.level - 1) * 16 + 6
+                                y: modelData.y + previewText.padding
+                                width: previewText.width - previewText.padding * 2 - (modelData.level - 1) * 16 - 6
+                                height: modelData.height
+                                color: "#4a9eff"
+                                opacity: 0.06
+                                radius: 2
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -562,6 +590,7 @@ ApplicationWindow {
             root.markdownPreview = !root.markdownPreview
             if (root.markdownPreview) {
                 previewText.text = textArea.text
+                markdownStyler.styleDocument(previewText.textDocument)
             } else {
                 textArea.forceActiveFocus()
             }

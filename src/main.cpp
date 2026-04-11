@@ -6,6 +6,7 @@
 #include "mathengine.h"
 #include "autopaste.h"
 #include "syntaxhighlighter.h"
+#include "markdownstyler.h"
 
 int main(int argc, char *argv[])
 {
@@ -19,12 +20,14 @@ int main(int argc, char *argv[])
     MathEngine mathEngine;
     AutoPaste autoPaste(&store);
     SyntaxHighlighter highlighter;
+    MarkdownStyler markdownStyler;
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("noteStore", &store);
     engine.rootContext()->setContextProperty("mathEngine", &mathEngine);
     engine.rootContext()->setContextProperty("autoPaste", &autoPaste);
     engine.rootContext()->setContextProperty("syntaxHighlighter", &highlighter);
+    engine.rootContext()->setContextProperty("markdownStyler", &markdownStyler);
     engine.load(QUrl("qrc:/qml/main.qml"));
 
     if (engine.rootObjects().isEmpty())

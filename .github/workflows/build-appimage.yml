@@ -108,10 +108,17 @@ jobs:
 
       - name: Create DMG
         run: |
-          hdiutil create -volname Flick \
-            -srcfolder build/flick.app \
-            -ov -format UDZO \
-            flick-$(git describe --tags --always)-macos.dmg
+          brew install create-dmg
+          create-dmg \
+            --volname "Flick" \
+            --window-pos 200 120 \
+            --window-size 660 400 \
+            --icon-size 80 \
+            --icon "flick.app" 180 190 \
+            --app-drop-link 480 190 \
+            --hide-extension "flick.app" \
+            flick-$(git describe --tags --always)-macos.dmg \
+            build/flick.app
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

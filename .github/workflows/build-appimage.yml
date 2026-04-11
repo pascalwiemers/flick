@@ -1,4 +1,4 @@
-name: Build AppImage
+name: Build
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-linux:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -75,9 +75,51 @@ jobs:
           name: flick-appimage
           path: flick-*.AppImage
 
-      - name: Create release
+      - name: Upload release asset
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: flick-*.AppImage
           generate_release_notes: true
+
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6.6.2 via aqtinstall
+        run: |
+          pip3 install aqtinstall
+          aqt install-qt mac desktop 6.6.2 clang_64 -m qtquicktimeline
+          echo "Qt6_DIR=${{ github.workspace }}/6.6.2/macos" >> $GITHUB_ENV
+          echo "${{ github.workspace }}/6.6.2/macos/bin" >> $GITHUB_PATH
+
+      - name: Build
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH=$Qt6_DIR
+          cmake --build build --parallel $(sysctl -n hw.ncpu)
+
+      - name: Bundle Qt frameworks
+        run: |
+          $Qt6_DIR/bin/macdeployqt build/flick.app -qmldir=src/qml
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname Flick \
+            -srcfolder build/flick.app \
+            -ov -format UDZO \
+            flick-$(git describe --tags --always)-macos.dmg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flick-dmg
+          path: flick-*.dmg
+
+      - name: Upload release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: flick-*.dmg

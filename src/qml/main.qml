@@ -241,6 +241,84 @@ ApplicationWindow {
         }
     }
 
+    // --- Grid overview (Shift+Tab) ---
+    property bool gridVisible: false
+    property int _gridRevision: 0  // bump to force delegate refresh
+
+    Rectangle {
+        id: gridOverlay
+        anchors.fill: parent
+        z: 10
+        color: "#1a1a1a"
+        visible: gridVisible
+        opacity: gridVisible ? 1 : 0
+
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+
+        GridView {
+            id: gridView
+            anchors.fill: parent
+            anchors.margins: 16
+            cellWidth: Math.max(160, (width - 16) / Math.min(3, noteStore.noteCount))
+            cellHeight: cellWidth * 0.75
+            model: noteStore.noteCount
+            clip: true
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOff }
+
+            delegate: Item {
+                width: gridView.cellWidth
+                height: gridView.cellHeight
+
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: 6
+                    color: index === noteStore.currentIndex ? "#2a2a2a" : "#222222"
+                    border.color: index === noteStore.currentIndex ? "#444444" : "#2f2f2f"
+                    border.width: 1
+                    radius: 4
+                    clip: true
+
+                    Text {
+                        anchors.fill: parent
+                        anchors.margins: 12
+                        readonly property string noteText: root._gridRevision, noteStore.getText(index)
+                        text: noteText || "(empty)"
+                        color: noteText ? "#e0e0e0" : "#555555"
+                        font.family: root.monoFont
+                        font.pixelSize: 11
+                        wrapMode: Text.Wrap
+                        elide: Text.ElideRight
+                        maximumLineCount: Math.max(1, Math.floor((parent.height - 24) / 16))
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            root._syncing = true
+                            noteStore.currentIndex = index
+                            textArea.text = noteStore.currentText
+                            root._syncing = false
+                            textArea.forceActiveFocus()
+                            root.gridVisible = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Shortcut {
+        sequence: "Shift+Tab"
+        onActivated: {
+            root.gridVisible = !root.gridVisible
+            if (root.gridVisible)
+                root._gridRevision++
+            else
+                textArea.forceActiveFocus()
+        }
+    }
+
     // --- Ctrl+Wheel to navigate notes ---
     MouseArea {
         anchors.fill: parent

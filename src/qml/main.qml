@@ -180,16 +180,21 @@ ApplicationWindow {
                             y: parent.scrollY + parent.lineRect.height + 2
                         }
 
-                        // Result text or total
+                        // Result text — inline after the line content
                         Text {
                             visible: modelData.text !== "" && !modelData.isSeparator
-                            text: modelData.text
+                            text: " " + modelData.text
                             color: modelData.color
                             font.family: root.monoFont
                             font.pixelSize: root.fontSize
                             font.italic: modelData.isTotal
 
-                            x: panelA.width - width - 32
+                            x: {
+                                if (modelData.isTotal)
+                                    return panelA.width - width - 32
+                                // Position right after the last character of the line
+                                return parent.lineRect.x - flickableA.contentX
+                            }
                             y: {
                                 if (modelData.isTotal)
                                     return parent.scrollY + parent.lineRect.height + 6

@@ -120,7 +120,7 @@ void MathEngine::evaluate(const QString &text)
         }
 
         if (!isAssignment) {
-            // Try as bare expression
+            // Try as bare expression — but only show result if line ends with "="
             exprStr = line;
         }
 
@@ -130,35 +130,44 @@ void MathEngine::evaluate(const QString &text)
         QString cleanExpr = exprStr;
         cleanExpr.remove('$');
 
+        // For assignments: always evaluate (to store the variable), never show result
+        // For expressions: only evaluate and show if the line ends with "="
+        bool wantsResult = false;
+        if (!isAssignment) {
+            QString stripped = cleanExpr.trimmed();
+            if (stripped.endsWith('=')) {
+                wantsResult = true;
+                cleanExpr = stripped.left(stripped.length() - 1).trimmed();
+            }
+        }
+
         // Substitute variables
         bool varCurrency = false;
         bool hasUndefined = false;
         QString substituted = substituteVars(cleanExpr, vars, varCurrency, hasUndefined);
 
-        if (hasUndefined) {
-            // Show = ? for lines that tried to use variables but had undefined ones
-            QVariantMap entry;
-            entry["line"] = i;
-            entry["text"] = "= ?";
-            entry["color"] = "#cc4444";
-            entry["isComment"] = false;
-            entry["isSeparator"] = false;
-            entry["isTotal"] = false;
-            newResults.append(entry);
+        bool hasCurrency = lineCurrency || varCurrency;
 
-            // Undefined breaks math block
+        if (hasUndefined && (isAssignment || wantsResult)) {
+            if (wantsResult) {
+                QVariantMap entry;
+                entry["line"] = i;
+                entry["text"] = " ?";
+                entry["color"] = "#cc4444";
+                entry["isComment"] = false;
+                entry["isSeparator"] = false;
+                entry["isTotal"] = false;
+                newResults.append(entry);
+            }
             flushBlock(i);
             continue;
         }
 
-        bool hasCurrency = lineCurrency || varCurrency;
-
         // Parse and evaluate
         EvalResult result = parseAndEval(substituted);
 
-        // Fallback: if parsing failed, try extracting trailing number
-        // Handles patterns like "rent 1200", "groceries 350"
-        if (result.status == EvalStatus::Error && !isAssignment) {
+        // Fallback: if parsing failed on a "wants result" line, try trailing number
+        if (result.status == EvalStatus::Error && wantsResult) {
             static QRegularExpression trailingNum("(-?\\$?[\\d,]+\\.?\\d*)\\s*$");
             QRegularExpressionMatch match = trailingNum.match(cleanExpr);
             if (match.hasMatch()) {
@@ -172,31 +181,35 @@ void MathEngine::evaluate(const QString &text)
         }
 
         if (result.status == EvalStatus::Ok) {
-            if (isAssignment)
+            if (isAssignment) {
                 vars[varName] = { result.value, hasCurrency };
+                currentBlock.append({ i, result.value, hasCurrency });
+                continue;
+            }
 
-            QVariantMap entry;
-            entry["line"] = i;
-            entry["text"] = "= " + formatResult(result.value, hasCurrency);
-            entry["color"] = result.value < 0 ? "#cc6666" : "#5daa5d";
-            entry["isComment"] = false;
-            entry["isSeparator"] = false;
-            entry["isTotal"] = false;
-            newResults.append(entry);
+            if (wantsResult) {
+                QVariantMap entry;
+                entry["line"] = i;
+                entry["text"] = " " + formatResult(result.value, hasCurrency);
+                entry["color"] = result.value < 0 ? "#cc6666" : "#5daa5d";
+                entry["isComment"] = false;
+                entry["isSeparator"] = false;
+                entry["isTotal"] = false;
+                newResults.append(entry);
+            }
 
             currentBlock.append({ i, result.value, hasCurrency });
-        } else if (result.status == EvalStatus::DivByZero) {
+        } else if (result.status == EvalStatus::DivByZero && wantsResult) {
             QVariantMap entry;
             entry["line"] = i;
-            entry["text"] = QString::fromUtf8("= ∞");
+            entry["text"] = QString::fromUtf8(" ∞");
             entry["color"] = "#cc6666";
             entry["isComment"] = false;
             entry["isSeparator"] = false;
             entry["isTotal"] = false;
             newResults.append(entry);
             flushBlock(i);
-        } else {
-            // Parse error or pure text — no result, breaks math block
+        } else if (!isAssignment) {
             flushBlock(i);
         }
     }
@@ -438,7 +451,7 @@ MathEngine::EvalResult MathEngine::parseAndEval(const QString &expr)
                 break;
             case TokenType::RParen:
                 while (!ops.empty() && ops.top() != '(') {
-                    if (ops.top() == '/' && output.top() == 0)
+                    if (output.size() >= 1 && ops.top() == '/' && output.top() == 0)
                         return { 0, EvalStatus::DivByZero, false };
                     if (!applyOp()) return { 0, EvalStatus::Error, false };
                 }
@@ -453,7 +466,7 @@ MathEngine::EvalResult MathEngine::parseAndEval(const QString &expr)
 
     while (!ops.empty()) {
         if (ops.top() == '(') return { 0, EvalStatus::Error, false };
-        if (ops.top() == '/' && output.top() == 0)
+        if (output.size() >= 1 && ops.top() == '/' && output.top() == 0)
             return { 0, EvalStatus::DivByZero, false };
         if (!applyOp()) return { 0, EvalStatus::Error, false };
     }

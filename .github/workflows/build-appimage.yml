@@ -106,6 +106,10 @@ jobs:
         run: |
           $Qt6_DIR/bin/macdeployqt build/flick.app -qmldir=src/qml
 
+      - name: Ad-hoc codesign
+        run: |
+          codesign --force --deep --sign - build/flick.app
+
       - name: Create DMG
         run: |
           brew install create-dmg

@@ -9,7 +9,16 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network)
 
 qt6_add_resources(QML_RESOURCES src/qml/qml.qrc)
 
-add_executable(flick
+set(MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.pascalwiemers.flick")
+set(MACOSX_BUNDLE_BUNDLE_NAME "Flick")
+set(MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION})
+set(MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION})
+
+if(APPLE)
+    set(BUNDLE_FLAG MACOSX_BUNDLE)
+endif()
+
+add_executable(flick ${BUNDLE_FLAG}
     src/main.cpp
     src/notestore.cpp
     src/mathengine.cpp

@@ -526,7 +526,12 @@ ApplicationWindow {
         onActivated: root.toggleGridOverview()
     }
 
-    // --- Ctrl+Wheel to navigate notes ---
+    // --- Swipe / Ctrl+Wheel to navigate notes ---
+    // On macOS, two-finger horizontal swipe on trackpad sends horizontal scroll.
+    // On all platforms, Ctrl+vertical scroll also navigates.
+    property real _swipeAccumulator: 0
+    readonly property real _swipeThreshold: 200
+
     MouseArea {
         anchors.fill: parent
         z: 2
@@ -534,15 +539,44 @@ ApplicationWindow {
         propagateComposedEvents: true
 
         onWheel: function(wheel) {
-            if (!(wheel.modifiers & Qt.ControlModifier)) {
-                wheel.accepted = false
+            // Ctrl+vertical scroll — works everywhere
+            if (wheel.modifiers & Qt.ControlModifier) {
+                if (wheel.angleDelta.y > 0)
+                    navigateTo(noteStore.currentIndex - 1)
+                else if (wheel.angleDelta.y < 0)
+                    navigateTo(noteStore.currentIndex + 1)
                 return
             }
-            if (wheel.angleDelta.y > 0)
-                navigateTo(noteStore.currentIndex - 1)
-            else if (wheel.angleDelta.y < 0)
-                navigateTo(noteStore.currentIndex + 1)
+
+            // Two-finger horizontal swipe (macOS trackpad)
+            var dominated = Math.abs(wheel.angleDelta.x) > Math.abs(wheel.angleDelta.y)
+            if ((Qt.platform.os === "osx" || Qt.platform.os === "macos") && dominated) {
+                // Swallow all horizontal scroll during animation + cooldown
+                if (root._animating || swipeCooldownTimer.running)
+                    return
+
+                root._swipeAccumulator += wheel.angleDelta.x
+                if (root._swipeAccumulator > root._swipeThreshold) {
+                    root._swipeAccumulator = 0
+                    swipeCooldownTimer.restart()
+                    navigateTo(noteStore.currentIndex - 1)
+                } else if (root._swipeAccumulator < -root._swipeThreshold) {
+                    root._swipeAccumulator = 0
+                    swipeCooldownTimer.restart()
+                    navigateTo(noteStore.currentIndex + 1)
+                }
+                return
+            }
+
+            wheel.accepted = false
         }
+    }
+
+    // Cooldown: ignore trackpad inertia after a swipe triggers navigation
+    Timer {
+        id: swipeCooldownTimer
+        interval: 800
+        onTriggered: root._swipeAccumulator = 0
     }
 
     // --- Helper functions ---

@@ -139,6 +139,7 @@ ApplicationWindow {
                         var hasMath = text.indexOf("math:") >= 0
                         syntaxHighlighter.mathMode = hasMath
                         mathDebounce.restart()
+                        listDebounce.restart()
                     }
 
                     // Helper: get character position of start of line N
@@ -237,6 +238,119 @@ ApplicationWindow {
                         color: root.bgColor
                         opacity: 0.6
                     }
+                }
+            }
+        }
+
+        // --- List checkbox overlays (outside Flickable, clipped by panelA) ---
+        Item {
+            visible: !root.markdownPreview && listEngine.active
+            anchors.fill: parent
+            clip: true
+
+            Repeater {
+                model: listEngine.items
+
+                Item {
+                    visible: modelData.type === "item"
+                    property int lineIdx: modelData.line
+                    property rect lineRect: textArea.positionToRectangle(
+                        textArea.lineStartPos(lineIdx))
+                    property real scrollY: lineRect.y - flickableA.contentY
+                    property bool isChecked: modelData.checked === true
+
+                    // Checkbox
+                    Rectangle {
+                        id: checkBox
+                        x: 10
+                        y: parent.scrollY + (parent.lineRect.height - height) / 2
+                        width: 14
+                        height: 14
+                        radius: 3
+                        color: parent.isChecked ? root.accentColor : "transparent"
+                        border.color: parent.isChecked ? root.accentColor : root.dimTextColor
+                        border.width: 1.5
+
+                        // Checkmark
+                        Text {
+                            visible: parent.parent.isChecked
+                            anchors.centerIn: parent
+                            text: "\u2713"
+                            color: "#ffffff"
+                            font.pixelSize: 10
+                            font.bold: true
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            anchors.margins: -4
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                var newText = listEngine.toggleCheck(textArea.text, modelData.line)
+                                if (newText !== textArea.text) {
+                                    var pos = textArea.cursorPosition
+                                    textArea.text = newText
+                                    textArea.cursorPosition = Math.min(pos, textArea.text.length)
+                                }
+                            }
+                            z: 100
+                        }
+                    }
+
+                    // Strikethrough overlay for checked items
+                    Rectangle {
+                        visible: parent.isChecked
+                        property rect endRect: textArea.positionToRectangle(
+                            textArea.lineEndPos(parent.lineIdx))
+                        x: 32
+                        y: parent.scrollY + parent.lineRect.height / 2
+                        width: Math.max(0, endRect.x - flickableA.contentX - 32)
+                        height: 1
+                        color: root.dimTextColor
+                        opacity: 0.6
+                    }
+                }
+            }
+
+            // Dimming for checked items
+            Repeater {
+                model: listEngine.items
+
+                Rectangle {
+                    visible: modelData.checked === true
+                    property int lineIdx: modelData.line
+                    property rect startRect: textArea.positionToRectangle(
+                        textArea.lineStartPos(lineIdx))
+                    property rect endRect: textArea.positionToRectangle(
+                        textArea.lineEndPos(lineIdx))
+
+                    x: 0
+                    y: startRect.y - flickableA.contentY
+                    width: panelA.width
+                    height: Math.max(endRect.y + endRect.height - startRect.y, startRect.height)
+                    color: root.bgColor
+                    opacity: 0.4
+                }
+            }
+
+            // Comment dimming for list comments (//)
+            Repeater {
+                model: listEngine.items
+
+                Rectangle {
+                    visible: modelData.type === "comment"
+                    property int lineIdx: modelData.line
+                    property rect startRect: textArea.positionToRectangle(
+                        textArea.lineStartPos(lineIdx))
+                    property rect endRect: textArea.positionToRectangle(
+                        textArea.lineEndPos(lineIdx))
+
+                    x: 0
+                    y: startRect.y - flickableA.contentY
+                    width: panelA.width
+                    height: Math.max(endRect.y + endRect.height - startRect.y, startRect.height)
+                    color: root.bgColor
+                    opacity: 0.6
                 }
             }
         }
@@ -369,6 +483,7 @@ ApplicationWindow {
             textArea.forceActiveFocus()
             root._animating = false
             mathDebounce.restart()
+            listDebounce.restart()
         }
     }
 
@@ -426,6 +541,13 @@ ApplicationWindow {
         }
     }
 
+    // --- List debounce timer ---
+    Timer {
+        id: listDebounce
+        interval: 50
+        onTriggered: listEngine.evaluate(textArea.text)
+    }
+
     // Sync text from backend when it changes externally (e.g., after delete or AutoPaste)
     Connections {
         target: noteStore
@@ -437,6 +559,7 @@ ApplicationWindow {
                 root._syncing = false
                 textArea.cursorPosition = Math.min(pos, textArea.text.length)
                 mathDebounce.restart()
+                listDebounce.restart()
             }
         }
         function onNoteCountChanged() {
@@ -445,6 +568,7 @@ ApplicationWindow {
             root._syncing = false
             textArea.forceActiveFocus()
             mathDebounce.restart()
+            listDebounce.restart()
         }
     }
 
@@ -790,6 +914,18 @@ ApplicationWindow {
         z: 20
     }
 
+    // --- List mode indicator dot ---
+    Rectangle {
+        visible: listEngine.active
+        width: 6; height: 6; radius: 3
+        color: "#ff9f4a"
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.rightMargin: autoPaste.active ? 20 : 8
+        anchors.topMargin: 8
+        z: 20
+    }
+
     // --- Markdown preview indicator dot ---
     Rectangle {
         visible: root.markdownPreview
@@ -797,7 +933,12 @@ ApplicationWindow {
         color: "#4aff7f"
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.rightMargin: autoPaste.active ? 20 : 8
+        anchors.rightMargin: {
+            var offset = 8
+            if (autoPaste.active) offset += 12
+            if (listEngine.active) offset += 12
+            return offset
+        }
         anchors.topMargin: 8
         z: 20
     }
@@ -812,6 +953,7 @@ ApplicationWindow {
         anchors.rightMargin: {
             var offset = 8
             if (autoPaste.active) offset += 12
+            if (listEngine.active) offset += 12
             if (root.markdownPreview) offset += 12
             return offset
         }

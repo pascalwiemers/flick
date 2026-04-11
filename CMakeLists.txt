@@ -26,6 +26,7 @@ add_executable(flick ${BUNDLE_FLAG}
     src/syntaxhighlighter.cpp
     src/markdownstyler.cpp
     src/githubsync.cpp
+    src/listengine.cpp
     ${QML_RESOURCES}
 )
 

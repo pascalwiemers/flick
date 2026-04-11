@@ -8,6 +8,7 @@
 #include "syntaxhighlighter.h"
 #include "markdownstyler.h"
 #include "githubsync.h"
+#include "listengine.h"
 #include "windowdragger.h"
 
 int main(int argc, char *argv[])
@@ -24,6 +25,7 @@ int main(int argc, char *argv[])
     SyntaxHighlighter highlighter;
     MarkdownStyler markdownStyler;
     GitHubSync githubSync;
+    ListEngine listEngine;
     WindowDragger windowDragger;
 
     QQmlApplicationEngine engine;
@@ -33,6 +35,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("syntaxHighlighter", &highlighter);
     engine.rootContext()->setContextProperty("markdownStyler", &markdownStyler);
     engine.rootContext()->setContextProperty("githubSync", &githubSync);
+    engine.rootContext()->setContextProperty("listEngine", &listEngine);
     engine.rootContext()->setContextProperty("windowDragger", &windowDragger);
     engine.load(QUrl("qrc:/qml/main.qml"));
 

@@ -12,6 +12,7 @@
 #include <QStandardPaths>
 #include <QGuiApplication>
 #include <QClipboard>
+#include <QDebug>
 
 GitHubSync::GitHubSync(QObject *parent)
     : QObject(parent)
@@ -131,7 +132,13 @@ void GitHubSync::pollForToken()
     auto *reply = m_net.post(req, body.toString(QUrl::FullyEncoded).toUtf8());
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
-        auto doc = QJsonDocument::fromJson(reply->readAll());
+        auto data = reply->readAll();
+        qDebug() << "Poll response:" << reply->error() << reply->errorString() << data;
+        if (reply->error() != QNetworkReply::NoError) {
+            qDebug() << "Poll network error:" << reply->error() << reply->errorString();
+            return;
+        }
+        auto doc = QJsonDocument::fromJson(data);
         auto obj = doc.object();
 
         if (obj.contains("access_token")) {
@@ -139,6 +146,7 @@ void GitHubSync::pollForToken()
             onTokenReceived(obj["access_token"].toString());
         } else {
             QString error = obj["error"].toString();
+            qDebug() << "Poll status:" << error;
             if (error == "slow_down") {
                 m_pollInterval += 5;
                 m_pollTimer.setInterval(m_pollInterval * 1000);
@@ -172,12 +180,14 @@ void GitHubSync::fetchUsername()
     auto *reply = m_net.get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
+        qDebug() << "fetchUsername response:" << reply->error() << reply->errorString();
         if (reply->error() != QNetworkReply::NoError) {
             setError("Failed to get user info");
             return;
         }
         auto obj = QJsonDocument::fromJson(reply->readAll()).object();
         m_username = obj["login"].toString();
+        qDebug() << "Logged in as:" << m_username;
         m_settings.setValue("github/username", m_username);
         setStatus("connected");
     });

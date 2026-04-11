@@ -29,6 +29,13 @@ add_executable(flick ${BUNDLE_FLAG}
     ${QML_RESOURCES}
 )
 
+if(APPLE)
+    target_sources(flick PRIVATE src/windowdragger.mm)
+    target_link_libraries(flick PRIVATE "-framework AppKit")
+else()
+    target_sources(flick PRIVATE src/windowdragger_fallback.cpp)
+endif()
+
 target_link_libraries(flick PRIVATE
     Qt6::Core
     Qt6::Gui
@@ -36,6 +43,12 @@ target_link_libraries(flick PRIVATE
     Qt6::QuickControls2
     Qt6::Network
 )
+
+if(APPLE)
+    set_target_properties(flick PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/packaging/Info.plist
+    )
+endif()
 
 install(TARGETS flick DESTINATION bin)
 install(FILES packaging/io.github.pascalwiemers.flick.desktop

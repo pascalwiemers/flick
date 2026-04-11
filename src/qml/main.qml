@@ -50,22 +50,16 @@ ApplicationWindow {
         return "monospace"
     }
 
-    // --- Drag to move ---
+    // --- Drag to move (invisible strip at top) ---
     MouseArea {
         id: dragArea
-        anchors.fill: parent
-        z: 0
-        property point dragStart
-        property point windowStart
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: 28
+        z: 9  // above content but below grid overlay and auth overlay
 
-        onPressed: function(mouse) {
-            dragStart = Qt.point(mouse.x, mouse.y)
-            windowStart = Qt.point(root.x, root.y)
-        }
-        onPositionChanged: function(mouse) {
-            root.x = windowStart.x + (mouse.x - dragStart.x)
-            root.y = windowStart.y + (mouse.y - dragStart.y)
-        }
+        onPressed: windowDragger.startDrag(root)
     }
 
     // --- Resize handles ---

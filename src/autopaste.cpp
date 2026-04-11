@@ -3,7 +3,7 @@
 #include <QClipboard>
 #include <QMimeData>
 
-AutoPaste::AutoPaste(NoteStore *store, QObject *parent)
+AutoPaste::AutoPaste(QtNoteStore *store, QObject *parent)
     : QObject(parent)
     , m_store(store)
 {

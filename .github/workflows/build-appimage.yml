@@ -88,46 +88,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Qt 6.6.2 via aqtinstall
-        run: |
-          python3 -m venv .venv
-          .venv/bin/pip install aqtinstall
-          .venv/bin/aqt install-qt mac desktop 6.6.2 clang_64
-          echo "Qt6_DIR=${{ github.workspace }}/6.6.2/macos" >> $GITHUB_ENV
-          echo "${{ github.workspace }}/6.6.2/macos/bin" >> $GITHUB_PATH
-
       - name: Build
         run: |
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH=$Qt6_DIR
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel $(sysctl -n hw.ncpu)
           strip build/flick.app/Contents/MacOS/flick
-
-      - name: Bundle Qt frameworks
-        run: |
-          $Qt6_DIR/bin/macdeployqt build/flick.app -qmldir=src/qml
-
-      - name: Remove unused Qt frameworks
-        run: |
-          cd build/flick.app/Contents/Frameworks
-          # Keep only what the app actually uses: Core, Gui, Network, Qml, Quick, QuickControls2, OpenGL, QmlModels, QuickLayouts, QuickTemplates2
-          for fw in *.framework; do
-            name="${fw%.framework}"
-            case "$name" in
-              QtCore|QtGui|QtNetwork|QtOpenGL|QtQml|QtQmlModels|QtQmlWorkerScript|QtQuick|QtQuickControls2|QtQuickControls2Impl|QtQuickLayouts|QtQuickTemplates2|QtDBus) ;;
-              *) echo "Removing unused: $fw" && rm -rf "$fw" ;;
-            esac
-          done
-          # Remove unused QML modules
-          cd ../Resources/qml
-          for dir in */; do
-            name="${dir%/}"
-            case "$name" in
-              QtQuick|QtQml|Qt) ;;
-              *) echo "Removing unused QML: $dir" && rm -rf "$dir" ;;
-            esac
-          done
 
       - name: Ad-hoc codesign
         run: |
@@ -144,7 +109,6 @@ jobs:
             --icon "flick.app" 180 190 \
             --app-drop-link 480 190 \
             --hide-extension "flick.app" \
-            --hdiutil-verbose \
             flick-$(git describe --tags --always)-macos.dmg \
             build/flick.app
 

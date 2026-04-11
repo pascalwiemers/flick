@@ -89,8 +89,9 @@ jobs:
 
       - name: Install Qt 6.6.2 via aqtinstall
         run: |
-          pip3 install aqtinstall
-          aqt install-qt mac desktop 6.6.2 clang_64 -m qtquicktimeline
+          python3 -m venv .venv
+          .venv/bin/pip install aqtinstall
+          .venv/bin/aqt install-qt mac desktop 6.6.2 clang_64 -m qtquicktimeline
           echo "Qt6_DIR=${{ github.workspace }}/6.6.2/macos" >> $GITHUB_ENV
           echo "${{ github.workspace }}/6.6.2/macos/bin" >> $GITHUB_PATH
 

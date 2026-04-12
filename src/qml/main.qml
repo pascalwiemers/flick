@@ -140,6 +140,7 @@ ApplicationWindow {
                         syntaxHighlighter.mathMode = hasMath
                         mathDebounce.restart()
                         listDebounce.restart()
+                        statsDebounce.restart()
                     }
 
                     // Helper: get character position of start of line N
@@ -355,6 +356,53 @@ ApplicationWindow {
             }
         }
 
+        // --- Stats overlay (below text content) ---
+        Item {
+            visible: !root.markdownPreview && statsEngine.active
+            anchors.fill: parent
+            clip: true
+
+            Column {
+                property int lastLine: {
+                    var lines = textArea.text.split('\n')
+                    return lines.length - 1
+                }
+                property rect lastLineRect: textArea.positionToRectangle(
+                    textArea.lineEndPos(lastLine))
+
+                x: 24
+                y: lastLineRect.y + lastLineRect.height + 24 - flickableA.contentY
+                spacing: 2
+
+                Repeater {
+                    model: [
+                        { label: "Items:", value: statsEngine.items },
+                        { label: "Words:", value: statsEngine.words },
+                        { label: "Characters:", value: statsEngine.characters },
+                        { label: "Sentences:", value: statsEngine.sentences },
+                        { label: "Flesch Reading Ease Score:", value: statsEngine.fleschReadingEase.toFixed(2) },
+                        { label: "Flesch-Kincaid Grade Level:", value: statsEngine.fleschKincaidGrade.toFixed(2) }
+                    ]
+
+                    Row {
+                        spacing: 8
+                        Text {
+                            text: modelData.label
+                            color: root.dimTextColor
+                            font.family: root.monoFont
+                            font.pixelSize: 11
+                        }
+                        Text {
+                            text: String(modelData.value)
+                            color: root.textColor
+                            font.family: root.monoFont
+                            font.pixelSize: 11
+                        }
+                    }
+                }
+            }
+        }
+
         // --- Markdown preview overlay ---
         Item {
             id: previewPanel
@@ -484,6 +532,7 @@ ApplicationWindow {
             root._animating = false
             mathDebounce.restart()
             listDebounce.restart()
+            statsDebounce.restart()
         }
     }
 
@@ -534,8 +583,9 @@ ApplicationWindow {
         id: mathDebounce
         interval: 50
         onTriggered: {
-            if (textArea.text.indexOf("math:") >= 0)
-                mathEngine.evaluate(textArea.text)
+            var t = textArea.text
+            if (t.indexOf("math:") >= 0 || t.indexOf("total:") === 0 || t.indexOf("Total:") === 0 || t.indexOf("avg:") === 0 || t.indexOf("Avg:") === 0)
+                mathEngine.evaluate(t)
             else
                 mathEngine.evaluate("")
         }
@@ -546,6 +596,13 @@ ApplicationWindow {
         id: listDebounce
         interval: 50
         onTriggered: listEngine.evaluate(textArea.text)
+    }
+
+    // --- Stats debounce timer ---
+    Timer {
+        id: statsDebounce
+        interval: 50
+        onTriggered: statsEngine.evaluate(textArea.text)
     }
 
     // Sync text from backend when it changes externally (e.g., after delete or AutoPaste)
@@ -560,6 +617,7 @@ ApplicationWindow {
                 textArea.cursorPosition = Math.min(pos, textArea.text.length)
                 mathDebounce.restart()
                 listDebounce.restart()
+                statsDebounce.restart()
             }
         }
         function onNoteCountChanged() {
@@ -569,6 +627,7 @@ ApplicationWindow {
             textArea.forceActiveFocus()
             mathDebounce.restart()
             listDebounce.restart()
+            statsDebounce.restart()
         }
     }
 

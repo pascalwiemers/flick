@@ -8,6 +8,7 @@
     self.noteStore = new flick::NoteStore();
     self.mathEngine = new flick::MathEngine();
     self.listEngine = new flick::ListEngine();
+    self.statsEngine = new flick::StatsEngine();
 
     // GitHub sync manager
     self.syncManager = [[GitHubSyncManager alloc] init];
@@ -49,6 +50,7 @@
     self.editorVC = [[EditorViewController alloc] initWithNoteStore:self.noteStore
                                                          mathEngine:self.mathEngine
                                                          listEngine:self.listEngine
+                                                        statsEngine:self.statsEngine
                                                            darkMode:darkMode];
     self.editorVC.syncManager = self.syncManager;
 
@@ -102,6 +104,7 @@
     delete self.noteStore;
     delete self.mathEngine;
     delete self.listEngine;
+    delete self.statsEngine;
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {

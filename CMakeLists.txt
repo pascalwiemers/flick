@@ -9,6 +9,7 @@ set(CORE_SOURCES
     src/core/core_notestore.cpp
     src/core/core_mathengine.cpp
     src/core/core_listengine.cpp
+    src/core/core_statsengine.cpp
 )
 
 if(APPLE)
@@ -52,6 +53,7 @@ else()
         src/qml/qt_notestore.cpp
         src/qml/qt_mathengine.cpp
         src/qml/qt_listengine.cpp
+        src/qml/qt_statsengine.cpp
         src/autopaste.cpp
         src/syntaxhighlighter.cpp
         src/markdownstyler.cpp

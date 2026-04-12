@@ -59,11 +59,103 @@ MathEngine::MathEngine() {}
 const std::vector<MathResult> &MathEngine::results() const { return m_results; }
 const std::vector<std::string> &MathEngine::variableNames() const { return m_variableNames; }
 
+MathEngine::SpecialMode MathEngine::specialMode() const { return m_specialMode; }
+const std::string &MathEngine::specialResult() const { return m_specialResult; }
+
+std::vector<double> MathEngine::extractNumbers(const std::string &text, bool &hasCurrency)
+{
+    std::vector<double> nums;
+    hasCurrency = false;
+    // Match $1,234.56 or 1234.56 or $1234 etc.
+    std::regex numRe("\\$?([\\d,]+\\.?\\d*)");
+    auto begin = std::sregex_iterator(text.begin(), text.end(), numRe);
+    auto end = std::sregex_iterator();
+    for (auto it = begin; it != end; ++it) {
+        std::string full = (*it)[0].str();
+        if (full.find('$') != std::string::npos) hasCurrency = true;
+        std::string numStr = removeChar(removeChar(full, '$'), ',');
+        try {
+            double val = std::stod(numStr);
+            nums.push_back(val);
+        } catch (...) {}
+    }
+    return nums;
+}
+
+void MathEngine::evaluateSpecialMode(const std::string &text, SpecialMode mode)
+{
+    auto lines = splitLines(text);
+    // Gather text from line 1 onwards (skip the prefix line)
+    std::string body;
+    for (size_t i = 1; i < lines.size(); ++i) {
+        if (i > 1) body += '\n';
+        body += lines[i];
+    }
+
+    bool hasCurrency = false;
+    auto nums = extractNumbers(body, hasCurrency);
+
+    std::vector<MathResult> newResults;
+
+    // Mark first line as comment
+    MathResult header;
+    header.line = 0;
+    header.isComment = true;
+    header.color = "#555555";
+    newResults.push_back(header);
+
+    if (!nums.empty()) {
+        double total = 0;
+        for (double n : nums) total += n;
+        double result = (mode == SpecialMode::Avg) ? (total / (double)nums.size()) : total;
+
+        std::string label = (mode == SpecialMode::Avg) ? "Avg: " : "Total: ";
+
+        // Show on the last line
+        int lastLine = (int)lines.size() - 1;
+        if (lastLine < 1) lastLine = 1;
+
+        MathResult sep;
+        sep.line = lastLine;
+        sep.isSeparator = true;
+        sep.color = "#333333";
+        newResults.push_back(sep);
+
+        MathResult tot;
+        tot.line = lastLine;
+        tot.text = label + formatResult(result, hasCurrency);
+        tot.color = result < 0 ? "#cc6666" : "#5daa5d";
+        tot.isTotal = true;
+        newResults.push_back(tot);
+    }
+
+    m_specialMode = mode;
+    m_results = std::move(newResults);
+    m_variableNames.clear();
+    m_specialResult.clear();
+    notify(onResultsChanged);
+}
+
 void MathEngine::evaluate(const std::string &text)
 {
+    // Check for special modes first
+    auto lines = splitLines(text);
+    if (!lines.empty()) {
+        std::string first = toLower(trim(lines[0]));
+        if (first == "total:" || first.substr(0, 6) == "total:") {
+            evaluateSpecialMode(text, SpecialMode::Total);
+            return;
+        }
+        if (first == "avg:" || first.substr(0, 4) == "avg:") {
+            evaluateSpecialMode(text, SpecialMode::Avg);
+            return;
+        }
+    }
+    m_specialMode = SpecialMode::None;
+    m_specialResult.clear();
+
     std::vector<MathResult> newResults;
     std::map<std::string, VarInfo> vars;
-    auto lines = splitLines(text);
 
     struct BlockEntry { int line; double value; bool hasCurrency; };
     std::vector<BlockEntry> currentBlock;

@@ -24,6 +24,11 @@ public:
     const std::vector<std::string> &variableNames() const;
     void evaluate(const std::string &text);
 
+    // Special modes: extract numbers from natural text
+    enum class SpecialMode { None, Total, Avg };
+    SpecialMode specialMode() const;
+    const std::string &specialResult() const;
+
     std::function<void()> onResultsChanged;
     std::function<void()> onVariableNamesChanged;
 
@@ -54,8 +59,13 @@ private:
                                bool &hasCurrency, bool &hasUndefined);
     static std::string formatResult(double val, bool currency);
 
+    void evaluateSpecialMode(const std::string &text, SpecialMode mode);
+    static std::vector<double> extractNumbers(const std::string &text, bool &hasCurrency);
+
     std::vector<MathResult> m_results;
     std::vector<std::string> m_variableNames;
+    SpecialMode m_specialMode = SpecialMode::None;
+    std::string m_specialResult;
 };
 
 } // namespace flick

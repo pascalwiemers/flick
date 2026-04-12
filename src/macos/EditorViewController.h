@@ -3,6 +3,7 @@
 #include "../core/core_notestore.h"
 #include "../core/core_mathengine.h"
 #include "../core/core_listengine.h"
+#include "../core/core_statsengine.h"
 
 @class GitHubSyncManager;
 
@@ -14,6 +15,7 @@
 - (instancetype)initWithNoteStore:(flick::NoteStore *)noteStore
                        mathEngine:(flick::MathEngine *)mathEngine
                        listEngine:(flick::ListEngine *)listEngine
+                      statsEngine:(flick::StatsEngine *)statsEngine
                          darkMode:(BOOL)darkMode;
 
 - (void)updateWindowBackground:(NSWindow *)window;

@@ -141,6 +141,7 @@ static NSFont *monoFont(CGFloat size) {
 @property (nonatomic, weak) NSTextView *textView;
 @property (nonatomic) flick::MathEngine *mathEngine;
 @property (nonatomic) flick::ListEngine *listEngine;
+@property (nonatomic) flick::StatsEngine *statsEngine;
 @property (nonatomic) flick::NoteStore *noteStore;
 @property (nonatomic) BOOL darkMode;
 @property (nonatomic) CGFloat fontSize;
@@ -149,6 +150,23 @@ static NSFont *monoFont(CGFloat size) {
 @implementation OverlayView
 
 - (BOOL)isFlipped { return YES; }
+
+- (NSView *)hitTest:(NSPoint)point {
+    // Only intercept clicks on list checkboxes; pass everything else through to the text view
+    if (!self.listEngine->active()) return nil;
+
+    NSPoint local = [self convertPoint:point fromView:self.superview];
+    for (auto &item : self.listEngine->items()) {
+        if (item.type != "item") continue;
+        NSRect lineRect = [self rectForLine:item.line];
+        CGFloat cbSize = 14;
+        NSRect cbRect = NSMakeRect(6, lineRect.origin.y + (lineRect.size.height - cbSize) / 2 - 4,
+                                   cbSize + 8, cbSize + 8);
+        if (NSPointInRect(local, cbRect))
+            return self;
+    }
+    return nil;
+}
 
 - (NSRect)rectForLine:(int)lineIndex {
     NSString *text = self.textView.string;
@@ -308,6 +326,48 @@ static NSFont *monoFont(CGFloat size) {
             [dimColor(self.darkMode) setStroke];
             path.lineWidth = 1.5;
             [path stroke];
+        }
+    }
+
+    // ── Stats overlay ──
+    if (self.statsEngine && self.statsEngine->active()) {
+        auto &st = self.statsEngine->result();
+        NSFont *statsFont = monoFont(11);
+        NSColor *labelColor = dimColor(self.darkMode);
+        NSColor *valueColor = textColor(self.darkMode);
+
+        NSArray *labels = @[@"Items:", @"Words:", @"Characters:", @"Sentences:",
+                            @"Flesch Reading Ease Score:", @"Flesch-Kincaid Grade Level:"];
+        NSArray *values = @[
+            [NSString stringWithFormat:@"%d", st.items],
+            [NSString stringWithFormat:@"%d", st.words],
+            [NSString stringWithFormat:@"%d", st.characters],
+            [NSString stringWithFormat:@"%d", st.sentences],
+            [NSString stringWithFormat:@"%.2f", st.fleschReadingEase],
+            [NSString stringWithFormat:@"%.2f", st.fleschKincaidGrade]
+        ];
+
+        // Find position after last line of text
+        NSString *text = self.textView.string;
+        int lineCount = (int)[[text componentsSeparatedByString:@"\n"] count];
+        NSRect lastLineRect = [self rectForLine:lineCount - 1];
+        CGFloat startY = lastLineRect.origin.y + lastLineRect.size.height + 24;
+
+        for (NSUInteger i = 0; i < labels.count; i++) {
+            NSDictionary *labelAttrs = @{
+                NSFontAttributeName: statsFont,
+                NSForegroundColorAttributeName: labelColor
+            };
+            NSDictionary *valueAttrs = @{
+                NSFontAttributeName: statsFont,
+                NSForegroundColorAttributeName: valueColor
+            };
+
+            CGFloat y = startY + i * 18;
+            [labels[i] drawAtPoint:NSMakePoint(24, y) withAttributes:labelAttrs];
+
+            NSSize labelSize = [labels[i] sizeWithAttributes:labelAttrs];
+            [values[i] drawAtPoint:NSMakePoint(24 + labelSize.width + 8, y) withAttributes:valueAttrs];
         }
     }
 }
@@ -657,6 +717,7 @@ static NSFont *monoFont(CGFloat size) {
     flick::NoteStore *_noteStore;
     flick::MathEngine *_mathEngine;
     flick::ListEngine *_listEngine;
+    flick::StatsEngine *_statsEngine;
     BOOL _darkMode;
     CGFloat _fontSize;
     BOOL _syncing;
@@ -690,12 +751,14 @@ static NSFont *monoFont(CGFloat size) {
 - (instancetype)initWithNoteStore:(flick::NoteStore *)noteStore
                        mathEngine:(flick::MathEngine *)mathEngine
                        listEngine:(flick::ListEngine *)listEngine
+                      statsEngine:(flick::StatsEngine *)statsEngine
                          darkMode:(BOOL)darkMode {
     self = [super init];
     if (self) {
         _noteStore = noteStore;
         _mathEngine = mathEngine;
         _listEngine = listEngine;
+        _statsEngine = statsEngine;
         _darkMode = darkMode;
         _fontSize = [[NSUserDefaults standardUserDefaults] doubleForKey:@"fontSize"];
         if (_fontSize < 8) _fontSize = 14;
@@ -748,6 +811,7 @@ static NSFont *monoFont(CGFloat size) {
     _overlayView.mathEngine = _mathEngine;
     _overlayView.listEngine = _listEngine;
     _overlayView.noteStore = _noteStore;
+    _overlayView.statsEngine = _statsEngine;
     _overlayView.darkMode = _darkMode;
     _overlayView.fontSize = _fontSize;
     [_textView addSubview:_overlayView];
@@ -1422,11 +1486,14 @@ static NSFont *monoFont(CGFloat size) {
         if (!strong) return;
 
         bool hasMath = text.find("math:") != std::string::npos;
-        if (hasMath)
+        bool hasTotal = text.substr(0, 6) == "total:" || text.substr(0, 6) == "Total:";
+        bool hasAvg = text.substr(0, 4) == "avg:" || text.substr(0, 4) == "Avg:";
+        if (hasMath || hasTotal || hasAvg)
             strong->_mathEngine->evaluate(text);
         else
             strong->_mathEngine->evaluate("");
         strong->_listEngine->evaluate(text);
+        strong->_statsEngine->evaluate(text);
 
         // Syntax highlighting for math mode
         [strong applySyntaxHighlighting:hasMath];

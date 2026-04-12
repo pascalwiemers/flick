@@ -57,6 +57,29 @@ static NSFont *monoFont(CGFloat size) {
     return f;
 }
 
+// ─── Custom scroll view that forwards horizontal swipes ─────────
+@class SwipeScrollView;
+
+@protocol SwipeScrollViewDelegate <NSObject>
+- (BOOL)swipeScrollView:(SwipeScrollView *)sv handleScrollWheel:(NSEvent *)event;
+@end
+
+@interface SwipeScrollView : NSScrollView
+@property (nonatomic, weak) id<SwipeScrollViewDelegate> swipeDelegate;
+@end
+
+@implementation SwipeScrollView
+
+- (void)scrollWheel:(NSEvent *)event {
+    if (event.hasPreciseScrollingDeltas && self.swipeDelegate) {
+        BOOL handled = [self.swipeDelegate swipeScrollView:self handleScrollWheel:event];
+        if (handled) return;
+    }
+    [super scrollWheel:event];
+}
+
+@end
+
 // ─── Indicator dots view (fixed position, top-right) ────────────
 @interface IndicatorView : NSView
 @property (nonatomic, weak) EditorViewController *controller;
@@ -630,7 +653,7 @@ static NSFont *monoFont(CGFloat size) {
 @end
 
 // ─── Main editor view controller ────────────────────────────────
-@interface EditorViewController () {
+@interface EditorViewController () <SwipeScrollViewDelegate> {
     flick::NoteStore *_noteStore;
     flick::MathEngine *_mathEngine;
     flick::ListEngine *_listEngine;
@@ -641,7 +664,7 @@ static NSFont *monoFont(CGFloat size) {
     BOOL _autoPasteActive;
     BOOL _markdownPreview;
     BOOL _gridVisible;
-    NSScrollView *_scrollView;
+    SwipeScrollView *_scrollView;
     OverlayView *_overlayView;
     IndicatorView *_indicatorView;
     GridOverlayView *_gridOverlayView;
@@ -651,9 +674,12 @@ static NSFont *monoFont(CGFloat size) {
     dispatch_source_t _pasteboardTimer;
     NSInteger _lastPasteboardCount;
     NSString *_lastCapturedText;
-    CGFloat _swipeAccumulator;
-    dispatch_source_t _swipeCooldownTimer;
-    BOOL _swipeCoolingDown;
+    // Live swipe tracking
+    BOOL _swiping;
+    CGFloat _swipeOffset;        // current finger-tracked offset in points
+    NSImageView *_swipeGhostView; // shows adjacent note during swipe
+    int _swipeTargetIndex;       // which note we'd navigate to
+    BOOL _swipeDirectionLocked;  // once we pick left/right, lock it
     id _keyMonitor;
     id _scrollMonitor;
 }
@@ -678,8 +704,10 @@ static NSFont *monoFont(CGFloat size) {
         _autoPasteActive = NO;
         _markdownPreview = NO;
         _gridVisible = NO;
-        _swipeAccumulator = 0;
-        _swipeCoolingDown = NO;
+        _swiping = NO;
+        _swipeOffset = 0;
+        _swipeTargetIndex = -1;
+        _swipeDirectionLocked = NO;
         _lastPasteboardCount = [NSPasteboard generalPasteboard].changeCount;
         _lastCapturedText = [[NSPasteboard generalPasteboard] stringForType:NSPasteboardTypeString] ?: @"";
     }
@@ -691,7 +719,8 @@ static NSFont *monoFont(CGFloat size) {
     container.wantsLayer = YES;
 
     // Scroll view + text view
-    _scrollView = [[NSScrollView alloc] initWithFrame:container.bounds];
+    _scrollView = [[SwipeScrollView alloc] initWithFrame:container.bounds];
+    _scrollView.swipeDelegate = self;
     _scrollView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _scrollView.hasVerticalScroller = YES;
     _scrollView.scrollerStyle = NSScrollerStyleOverlay;
@@ -853,12 +882,11 @@ static NSFont *monoFont(CGFloat size) {
 }
 
 - (void)setupScrollMonitor {
+    // Ctrl+scroll is handled via global event monitor
     __weak EditorViewController *weakSelf = self;
     _scrollMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskScrollWheel handler:^NSEvent *(NSEvent *event) {
         EditorViewController *s = weakSelf;
         if (!s) return event;
-
-        // Ctrl+vertical scroll
         if (event.modifierFlags & NSEventModifierFlagControl) {
             if (event.scrollingDeltaY > 0)
                 [s navigateTo:s->_noteStore->currentIndex() - 1];
@@ -866,42 +894,195 @@ static NSFont *monoFont(CGFloat size) {
                 [s navigateTo:s->_noteStore->currentIndex() + 1];
             return nil;
         }
-
-        // Two-finger horizontal swipe (trackpad)
-        if (event.hasPreciseScrollingDeltas) {
-            BOOL dominated = fabs(event.scrollingDeltaX) > fabs(event.scrollingDeltaY);
-            if (dominated) {
-                if (s->_animating || s->_swipeCoolingDown)
-                    return nil;
-
-                s->_swipeAccumulator += event.scrollingDeltaX;
-                CGFloat threshold = 200;
-                if (s->_swipeAccumulator > threshold) {
-                    s->_swipeAccumulator = 0;
-                    [s startSwipeCooldown];
-                    [s navigateTo:s->_noteStore->currentIndex() - 1];
-                } else if (s->_swipeAccumulator < -threshold) {
-                    s->_swipeAccumulator = 0;
-                    [s startSwipeCooldown];
-                    [s navigateTo:s->_noteStore->currentIndex() + 1];
-                }
-                return nil;
-            }
-        }
-
         return event;
     }];
 }
 
-- (void)startSwipeCooldown {
-    _swipeCoolingDown = YES;
+// Returns YES if the swipe system consumed the event, NO to let NSScrollView handle it
+- (BOOL)swipeScrollView:(SwipeScrollView *)sv handleScrollWheel:(NSEvent *)event {
+    if (_animating) return _swiping;
+    if (_noteStore->noteCount() <= 1) return NO;
+
+    NSEventPhase phase = event.phase;
+
+    // Momentum/inertia events (phase 0) — eat them if swiping, else pass through
+    if (phase == NSEventPhaseNone) return _swiping;
+
+    if (phase == NSEventPhaseBegan) {
+        _swiping = NO;
+        _swipeOffset = 0;
+        _swipeDirectionLocked = NO;
+        _swipeTargetIndex = -1;
+        return NO; // let NSScrollView have the began event
+    }
+
+    if (phase == NSEventPhaseChanged) {
+        CGFloat dx = event.scrollingDeltaX;
+        CGFloat dy = event.scrollingDeltaY;
+
+        if (!_swipeDirectionLocked) {
+            if (fabs(dx) < 2 && fabs(dy) < 2)
+                return NO; // not enough movement yet
+            if (fabs(dy) > fabs(dx)) {
+                // Vertical wins — lock out swiping for this gesture
+                _swipeDirectionLocked = YES;
+                _swiping = NO;
+                return NO;
+            }
+            // Horizontal wins — start live swipe
+            _swipeDirectionLocked = YES;
+            _swiping = YES;
+            [self swipeBegin];
+        }
+
+        if (!_swiping) return NO;
+
+        _swipeOffset += dx;
+        [self swipeUpdate:_swipeOffset];
+        return YES;
+    }
+
+    if (phase == NSEventPhaseEnded || phase == NSEventPhaseCancelled) {
+        if (_swiping) {
+            _swiping = NO;
+            [self swipeEnd];
+            return YES;
+        }
+        return NO;
+    }
+
+    return _swiping;
+}
+
+// ─── Live swipe tracking ────────────────────────────────────────
+
+- (void)swipeBegin {
+    _scrollView.wantsLayer = YES;
+
+    NSRect frame = _scrollView.frame;
+    _swipeGhostView = [[NSImageView alloc] initWithFrame:frame];
+    _swipeGhostView.imageScaling = NSImageScaleNone;
+    _swipeGhostView.wantsLayer = YES;
+    [self.view addSubview:_swipeGhostView positioned:NSWindowAbove relativeTo:_scrollView];
+    _swipeGhostView.hidden = YES;
+}
+
+- (void)swipeUpdate:(CGFloat)offset {
+    NSRect origFrame = self.view.bounds;
+    CGFloat width = origFrame.size.width;
+
+    int currentIdx = _noteStore->currentIndex();
+    int count = _noteStore->noteCount();
+    int targetIdx;
+    if (offset > 0) {
+        targetIdx = currentIdx - 1;
+        if (targetIdx < 0) targetIdx = count - 1;
+    } else {
+        targetIdx = currentIdx + 1;
+        if (targetIdx >= count) targetIdx = 0;
+    }
+
+    if (targetIdx != _swipeTargetIndex) {
+        _swipeTargetIndex = targetIdx;
+        [self renderGhostForIndex:targetIdx];
+        _swipeGhostView.hidden = NO;
+    }
+
+    CGFloat clampedOffset = fmax(-width, fmin(width, offset));
+
+    // Move scroll view with finger
+    NSRect scrollFrame = origFrame;
+    scrollFrame.origin.x = clampedOffset;
+    _scrollView.frame = scrollFrame;
+
+    // Ghost sits on the incoming side
+    NSRect ghostFrame = origFrame;
+    ghostFrame.origin.x = (offset > 0) ? (clampedOffset - width) : (clampedOffset + width);
+    _swipeGhostView.frame = ghostFrame;
+}
+
+- (void)renderGhostForIndex:(int)index {
+    std::string noteText = _noteStore->getText(index);
+    NSString *text = [NSString stringWithUTF8String:noteText.c_str()];
+
+    // Render into an offscreen text view
+    NSRect frame = _scrollView.bounds;
+    NSTextView *tmpView = [[NSTextView alloc] initWithFrame:frame];
+    tmpView.drawsBackground = YES;
+    tmpView.backgroundColor = bgColor(_darkMode);
+    tmpView.textContainerInset = NSMakeSize(24, 32);
+    tmpView.font = monoFont(_fontSize);
+    tmpView.textColor = textColor(_darkMode);
+    [tmpView setString:text ?: @""];
+    [tmpView.layoutManager ensureLayoutForTextContainer:tmpView.textContainer];
+
+    NSBitmapImageRep *rep = [tmpView bitmapImageRepForCachingDisplayInRect:tmpView.bounds];
+    [tmpView cacheDisplayInRect:tmpView.bounds toBitmapImageRep:rep];
+    NSImage *img = [[NSImage alloc] initWithSize:frame.size];
+    [img addRepresentation:rep];
+    _swipeGhostView.image = img;
+}
+
+- (void)swipeEnd {
+    NSRect origFrame = self.view.bounds;
+    CGFloat width = origFrame.size.width;
+    CGFloat threshold = width * 0.15;
+
+    BOOL commit = (fabs(_swipeOffset) > threshold) && (_swipeTargetIndex >= 0);
+
+    _animating = YES;
     __weak EditorViewController *weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 800 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-        EditorViewController *s = weakSelf;
-        if (!s) return;
-        s->_swipeCoolingDown = NO;
-        s->_swipeAccumulator = 0;
-    });
+
+    if (commit) {
+        BOOL goingRight = _swipeOffset > 0;
+
+        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+            ctx.duration = 0.15;
+            ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+            ctx.allowsImplicitAnimation = YES;
+
+            NSRect scrollEnd = origFrame;
+            scrollEnd.origin.x = goingRight ? width : -width;
+            self->_scrollView.animator.frame = scrollEnd;
+
+            NSRect ghostEnd = origFrame;
+            self->_swipeGhostView.animator.frame = ghostEnd;
+        } completionHandler:^{
+            EditorViewController *s = weakSelf;
+            if (!s) return;
+
+            s->_noteStore->setCurrentIndex(s->_swipeTargetIndex);
+            [s loadCurrentNote];
+
+            s->_scrollView.frame = origFrame;
+            [s->_swipeGhostView removeFromSuperview];
+            s->_swipeGhostView = nil;
+            s->_swipeTargetIndex = -1;
+            s->_swipeOffset = 0;
+            s->_animating = NO;
+            [s->_textView.window makeFirstResponder:s->_textView];
+        }];
+    } else {
+        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+            ctx.duration = 0.15;
+            ctx.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+            ctx.allowsImplicitAnimation = YES;
+
+            self->_scrollView.animator.frame = origFrame;
+
+            NSRect ghostEnd = origFrame;
+            ghostEnd.origin.x = (self->_swipeOffset > 0) ? -width : width;
+            self->_swipeGhostView.animator.frame = ghostEnd;
+        } completionHandler:^{
+            EditorViewController *s = weakSelf;
+            if (!s) return;
+            [s->_swipeGhostView removeFromSuperview];
+            s->_swipeGhostView = nil;
+            s->_swipeTargetIndex = -1;
+            s->_swipeOffset = 0;
+            s->_animating = NO;
+        }];
+    }
 }
 
 - (void)setupPasteboardMonitor {

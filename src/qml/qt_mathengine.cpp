@@ -1,9 +1,14 @@
 #include "qt_mathengine.h"
+#include "qt_rateprovider.h"
 #include <QVariantMap>
+
+QtMathEngine::~QtMathEngine() = default;
 
 QtMathEngine::QtMathEngine(QObject *parent)
     : QObject(parent)
+    , m_rateProvider(std::make_unique<QtRateProvider>(this))
 {
+    m_core.setRateProvider(m_rateProvider.get());
     m_core.onResultsChanged = [this]() {
         m_cachedResults.clear();
         for (auto &r : m_core.results()) {

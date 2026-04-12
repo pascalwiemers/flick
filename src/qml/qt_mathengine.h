@@ -4,7 +4,10 @@
 #include <QString>
 #include <QVariantList>
 #include <QStringList>
+#include <memory>
 #include "../core/core_mathengine.h"
+
+class QtRateProvider;
 
 class QtMathEngine : public QObject {
     Q_OBJECT
@@ -13,6 +16,7 @@ class QtMathEngine : public QObject {
 
 public:
     explicit QtMathEngine(QObject *parent = nullptr);
+    ~QtMathEngine() override;
 
     QVariantList results() const;
     QStringList variableNames() const;
@@ -24,6 +28,7 @@ signals:
 
 private:
     flick::MathEngine m_core;
+    std::unique_ptr<QtRateProvider> m_rateProvider;
     QVariantList m_cachedResults;
     QStringList m_cachedVarNames;
 };

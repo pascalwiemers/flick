@@ -7,6 +7,9 @@
 
 namespace flick {
 
+class RateProvider;
+struct UnitDef;
+
 struct MathResult {
     int line = 0;
     std::string text;
@@ -16,6 +19,12 @@ struct MathResult {
     bool isTotal = false;
 };
 
+struct CurrencySettings {
+    std::string primarySymbol = "$";
+    std::string primaryCode = "USD";
+    std::string secondaryCode = "EUR";
+};
+
 class MathEngine {
 public:
     MathEngine();
@@ -23,6 +32,12 @@ public:
     const std::vector<MathResult> &results() const;
     const std::vector<std::string> &variableNames() const;
     void evaluate(const std::string &text);
+    void reevaluate(); // re-run with previously-evaluated text (used on rate refresh)
+
+    // Currency / rate wiring
+    void setRateProvider(RateProvider *p);
+    void setCurrencySettings(const CurrencySettings &s);
+    const CurrencySettings &currencySettings() const;
 
     // Special modes: extract numbers from natural text
     enum class SpecialMode { None, Total, Avg };
@@ -62,10 +77,24 @@ private:
     void evaluateSpecialMode(const std::string &text, SpecialMode mode);
     static std::vector<double> extractNumbers(const std::string &text, bool &hasCurrency);
 
+    // Try to parse a single line as a unit or currency conversion.
+    // Returns true if the line is a conversion (even an errored one).
+    // On success, outDisplay is the text to show (e.g. "25.40 cm"),
+    // outNumeric is the raw number to store in a variable, and outIsError
+    // indicates a dimension mismatch or unavailable rate.
+    bool tryParseConversionLine(const std::string &line, std::string &outDisplay,
+                                double &outNumeric, bool &outIsError);
+
+    static std::string formatWithUnit(double value, const UnitDef &unit);
+
     std::vector<MathResult> m_results;
     std::vector<std::string> m_variableNames;
     SpecialMode m_specialMode = SpecialMode::None;
     std::string m_specialResult;
+
+    RateProvider *m_rateProvider = nullptr;
+    CurrencySettings m_currencySettings;
+    std::string m_lastText; // for reevaluate()
 };
 
 } // namespace flick

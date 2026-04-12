@@ -1,9 +1,14 @@
 #include "core_mathengine.h"
+#include "core_units.h"
+#include "core_rateprovider.h"
+#include "core_ratestore.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <stack>
 #include <sstream>
 #include <cctype>
+#include <cstring>
 #include <regex>
 
 namespace flick {
@@ -61,6 +66,264 @@ const std::vector<std::string> &MathEngine::variableNames() const { return m_var
 
 MathEngine::SpecialMode MathEngine::specialMode() const { return m_specialMode; }
 const std::string &MathEngine::specialResult() const { return m_specialResult; }
+
+void MathEngine::setRateProvider(RateProvider *p) {
+    m_rateProvider = p;
+    if (p) {
+        p->onRatesChanged = [this]() { reevaluate(); };
+    }
+}
+
+void MathEngine::setCurrencySettings(const CurrencySettings &s) { m_currencySettings = s; }
+const CurrencySettings &MathEngine::currencySettings() const { return m_currencySettings; }
+
+void MathEngine::reevaluate() {
+    if (!m_lastText.empty())
+        evaluate(m_lastText);
+}
+
+// ── Conversion line parser ─────────────────────────────────────────
+
+namespace {
+
+// Format a number with thousands separator and given decimal places.
+static std::string formatNumber(double value, int decimals) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.*f", decimals, value);
+    std::string s = buf;
+    // Split integer / fractional
+    size_t dot = s.find('.');
+    std::string intPart = (dot == std::string::npos) ? s : s.substr(0, dot);
+    std::string fracPart = (dot == std::string::npos) ? "" : s.substr(dot);
+    bool negative = !intPart.empty() && intPart[0] == '-';
+    if (negative) intPart.erase(0, 1);
+    // Insert commas every 3 digits from right
+    std::string grouped;
+    int count = 0;
+    for (int i = (int)intPart.size() - 1; i >= 0; --i) {
+        if (count && count % 3 == 0) grouped += ',';
+        grouped += intPart[i];
+        ++count;
+    }
+    std::reverse(grouped.begin(), grouped.end());
+    return (negative ? "-" : "") + grouped + fracPart;
+}
+
+// Nearest 1/16 inch, e.g. 22.8125 -> "22 13/16"
+static std::string formatInchFraction(double inches) {
+    bool neg = inches < 0;
+    double a = std::abs(inches);
+    long long whole = (long long)std::floor(a);
+    double frac = a - whole;
+    int sixteenths = (int)std::round(frac * 16.0);
+    if (sixteenths == 16) {
+        whole += 1;
+        sixteenths = 0;
+    }
+    std::string out;
+    if (neg) out += "-";
+    out += std::to_string(whole);
+    if (sixteenths > 0) {
+        int num = sixteenths;
+        int den = 16;
+        while (num % 2 == 0 && den % 2 == 0) {
+            num /= 2;
+            den /= 2;
+        }
+        out += ' ';
+        out += std::to_string(num);
+        out += '/';
+        out += std::to_string(den);
+    }
+    return out;
+}
+
+// Decide decimal places for a value. Default is 2; very small non-zero
+// values get more precision so they don't render as "0.00".
+static int decimalsFor(const UnitDef &unit, double value) {
+    (void)unit;
+    double a = std::abs(value);
+    if (a == 0) return 2;
+    if (a >= 0.01) return 2;
+    if (a >= 1e-5) return 6;
+    return 8;
+}
+
+// Find " to " (case-insensitive, whitespace-bounded) inside [from, stop).
+static size_t findToKeyword(const std::string &s, size_t from, size_t stop) {
+    for (size_t i = from; i + 1 < stop; ++i) {
+        bool leftOk = (i == from) || std::isspace((unsigned char)s[i - 1]);
+        if (!leftOk) continue;
+        if ((s[i] == 't' || s[i] == 'T') && (s[i + 1] == 'o' || s[i + 1] == 'O')) {
+            bool rightOk = (i + 2 >= stop) || std::isspace((unsigned char)s[i + 2]);
+            if (rightOk) return i;
+        }
+    }
+    return std::string::npos;
+}
+
+static std::string trimStr(const std::string &s) {
+    auto start = s.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return {};
+    auto end = s.find_last_not_of(" \t\r\n");
+    return s.substr(start, end - start + 1);
+}
+
+} // namespace
+
+std::string MathEngine::formatWithUnit(double value, const UnitDef &unit) {
+    int decimals = decimalsFor(unit, value);
+
+    // Special case: inches get a fractional form appended.
+    if (unit.dim == Dimension::Distance && std::strcmp(unit.canonical, "in") == 0) {
+        std::string frac = formatInchFraction(value);
+        return frac + "\"";
+    }
+
+    std::string num = formatNumber(value, decimals);
+    // Trim trailing zeros on fractional part, but keep at least 2 decimals for readability.
+    // (Skip this — keep fixed decimals for consistency with spec examples.)
+
+    // Space before unit, unless unit is a symbolic trailing mark like " or '.
+    const char *u = unit.canonical;
+    if (u[0] == '"' || u[0] == '\'')
+        return num + u;
+    return num + " " + u;
+}
+
+bool MathEngine::tryParseConversionLine(const std::string &line, std::string &outDisplay,
+                                         double &outNumeric, bool &outIsError) {
+    outIsError = false;
+    std::string s = trimStr(line);
+    if (s.empty()) return false;
+
+    // Reject if the line contains arithmetic operators other than a leading sign.
+    // (Spec: conversions don't compose with arithmetic.)
+    // We inspect the raw string; minus only allowed at position 0 (plus the currency-symbol
+    // prefix if present).
+    auto hasArithOp = [](const std::string &str, size_t from) {
+        for (size_t i = from; i < str.size(); ++i) {
+            char c = str[i];
+            if (c == '+' || c == '*' || c == '/')
+                return true;
+            if (c == '-' && i > from)
+                return true;
+        }
+        return false;
+    };
+
+    size_t pos = 0;
+    bool hasSymbolPrefix = false;
+    const std::string &sym = m_currencySettings.primarySymbol;
+    if (!sym.empty() && s.compare(0, sym.size(), sym) == 0) {
+        hasSymbolPrefix = true;
+        pos = sym.size();
+        while (pos < s.size() && std::isspace((unsigned char)s[pos])) ++pos;
+    }
+
+    if (hasArithOp(s, pos)) return false;
+
+    // Parse the number.
+    size_t numStart = pos;
+    if (pos < s.size() && (s[pos] == '+' || s[pos] == '-')) ++pos;
+    size_t digitStart = pos;
+    while (pos < s.size() && (std::isdigit((unsigned char)s[pos]) || s[pos] == ',' || s[pos] == '.'))
+        ++pos;
+    if (pos == digitStart) return false;
+    std::string rawNum(s.begin() + numStart, s.begin() + pos);
+    std::string cleanedNum;
+    for (char c : rawNum)
+        if (c != ',') cleanedNum += c;
+    double value;
+    try {
+        value = std::stod(cleanedNum);
+    } catch (...) {
+        return false;
+    }
+
+    // Skip whitespace.
+    while (pos < s.size() && std::isspace((unsigned char)s[pos])) ++pos;
+
+    // Trim trailing `=` and whitespace.
+    size_t end = s.size();
+    while (end > pos && std::isspace((unsigned char)s[end - 1])) --end;
+    if (end > pos && s[end - 1] == '=') {
+        --end;
+        while (end > pos && std::isspace((unsigned char)s[end - 1])) --end;
+    }
+
+    // Split on " to ".
+    std::string unitBefore, unitAfter;
+    size_t toPos = findToKeyword(s, pos, end);
+    if (toPos != std::string::npos) {
+        unitBefore = s.substr(pos, toPos - pos);
+        size_t afterStart = toPos + 2;
+        while (afterStart < end && std::isspace((unsigned char)s[afterStart])) ++afterStart;
+        unitAfter = s.substr(afterStart, end - afterStart);
+    } else {
+        unitBefore = s.substr(pos, end - pos);
+    }
+    unitBefore = trimStr(unitBefore);
+    unitAfter = trimStr(unitAfter);
+
+    const UnitRegistry &reg = UnitRegistry::instance();
+    const UnitDef *fromUnit = nullptr;
+    const UnitDef *toUnit = nullptr;
+
+    if (hasSymbolPrefix) {
+        if (!unitBefore.empty()) return false; // "$10 km" — invalid
+        fromUnit = reg.findCurrency(m_currencySettings.primaryCode);
+        if (!fromUnit) return false;
+    } else {
+        if (unitBefore.empty()) return false; // bare number; not a conversion
+        fromUnit = reg.findUnit(unitBefore);
+        if (!fromUnit) fromUnit = reg.findCurrency(unitBefore);
+        if (!fromUnit) return false;
+    }
+
+    if (!unitAfter.empty()) {
+        toUnit = reg.findUnit(unitAfter);
+        if (!toUnit) toUnit = reg.findCurrency(unitAfter);
+        if (!toUnit) return false;
+    } else {
+        // No explicit target. Only valid for a symbol-prefix line → primary→secondary.
+        if (!hasSymbolPrefix) return false;
+        toUnit = reg.findCurrency(m_currencySettings.secondaryCode);
+        if (!toUnit) return false;
+    }
+
+    if (fromUnit->dim != toUnit->dim) {
+        outDisplay = "dim mismatch";
+        outNumeric = 0;
+        outIsError = true;
+        return true;
+    }
+
+    double result = 0;
+    if (fromUnit->dim == Dimension::Currency) {
+        if (!m_rateProvider) {
+            outDisplay = std::string(toUnit->canonical) + " (no rates)";
+            outNumeric = 0;
+            outIsError = true;
+            return true;
+        }
+        const RateStore &store = m_rateProvider->store();
+        if (!convertCurrency(value, *fromUnit, *toUnit, store, result)) {
+            m_rateProvider->requestRefresh();
+            outDisplay = std::string(toUnit->canonical) + " (loading…)";
+            outNumeric = 0;
+            outIsError = true;
+            return true;
+        }
+    } else {
+        if (!convertPhysical(value, *fromUnit, *toUnit, result))
+            return false;
+    }
+
+    outNumeric = result;
+    outDisplay = formatWithUnit(result, *toUnit);
+    return true;
+}
 
 std::vector<double> MathEngine::extractNumbers(const std::string &text, bool &hasCurrency)
 {
@@ -138,6 +401,7 @@ void MathEngine::evaluateSpecialMode(const std::string &text, SpecialMode mode)
 
 void MathEngine::evaluate(const std::string &text)
 {
+    m_lastText = text;
     // Check for special modes first
     auto lines = splitLines(text);
     if (!lines.empty()) {
@@ -227,6 +491,41 @@ void MathEngine::evaluate(const std::string &text)
 
         if (!isAssignment)
             exprStr = line;
+
+        // ── Try conversion parse first ─────────────────────────────
+        {
+            std::string convInput;
+            bool convWantsResult = false;
+            if (isAssignment) {
+                convInput = exprStr;
+                convWantsResult = true;
+            } else {
+                // Strip trailing '=' for conversion detection only.
+                std::string stripped = trim(line);
+                if (!stripped.empty() && stripped.back() == '=') {
+                    convInput = trim(stripped.substr(0, stripped.size() - 1));
+                    convWantsResult = true;
+                }
+            }
+
+            if (convWantsResult) {
+                std::string convDisplay;
+                double convNum = 0;
+                bool convErr = false;
+                if (tryParseConversionLine(convInput, convDisplay, convNum, convErr)) {
+                    if (isAssignment && !convErr) {
+                        vars[varName] = { convNum, false };
+                    }
+                    MathResult entry;
+                    entry.line = i;
+                    entry.text = (isAssignment ? " = " : " ") + convDisplay;
+                    entry.color = convErr ? "#cc6666" : "#5daa5d";
+                    newResults.push_back(entry);
+                    flushBlock(i);
+                    continue;
+                }
+            }
+        }
 
         bool lineCurrency = exprStr.find('$') != std::string::npos;
         std::string cleanExpr = removeChar(exprStr, '$');

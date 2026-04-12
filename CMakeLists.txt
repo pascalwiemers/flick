@@ -10,6 +10,8 @@ set(CORE_SOURCES
     src/core/core_mathengine.cpp
     src/core/core_listengine.cpp
     src/core/core_statsengine.cpp
+    src/core/core_units.cpp
+    src/core/core_ratestore.cpp
 )
 
 if(APPLE)
@@ -54,6 +56,7 @@ else()
         src/qml/qt_mathengine.cpp
         src/qml/qt_listengine.cpp
         src/qml/qt_statsengine.cpp
+        src/qml/qt_rateprovider.cpp
         src/autopaste.cpp
         src/syntaxhighlighter.cpp
         src/markdownstyler.cpp

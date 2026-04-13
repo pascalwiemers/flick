@@ -75,6 +75,24 @@ else()
     )
 endif()
 
+option(FLICK_BUILD_TESTS "Build flick unit tests" OFF)
+if(FLICK_BUILD_TESTS AND NOT APPLE)
+    enable_testing()
+    add_executable(flick_core_ids_test
+        tests/core_notestore_ids_test.cpp
+        src/core/core_notestore.cpp
+    )
+    target_include_directories(flick_core_ids_test PRIVATE src)
+    add_test(NAME flick_core_ids COMMAND flick_core_ids_test)
+
+    add_executable(flick_core_history_test
+        tests/core_notestore_history_test.cpp
+        src/core/core_notestore.cpp
+    )
+    target_include_directories(flick_core_history_test PRIVATE src)
+    add_test(NAME flick_core_history COMMAND flick_core_history_test)
+endif()
+
 install(TARGETS flick DESTINATION bin)
 install(FILES packaging/io.github.pascalwiemers.flick.desktop
         DESTINATION share/applications)

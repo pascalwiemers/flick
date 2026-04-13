@@ -12,6 +12,8 @@ ApplicationWindow {
     flags: Qt.FramelessWindowHint | Qt.Window
     title: "Flick"
 
+    onActiveChanged: if (!active) noteStore.commitHistory()
+
     property int fontSize: 14
     property bool markdownPreview: false
     property bool darkMode: true
@@ -138,6 +140,34 @@ ApplicationWindow {
                         text = noteStore.currentText
                         forceActiveFocus()
                         syntaxHighlighter.document = textArea.textDocument
+                    }
+
+                    // Intercept Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y directly here so
+                    // TextArea's built-in single-document undo never runs —
+                    // we route to core per-note history instead.
+                    Keys.onPressed: (event) => {
+                        if (event.modifiers & Qt.ControlModifier) {
+                            if (event.key === Qt.Key_Z && !(event.modifiers & Qt.ShiftModifier)) {
+                                event.accepted = true
+                                noteStore.commitHistory()
+                                if (noteStore.undo()) {
+                                    root._syncing = true
+                                    textArea.text = noteStore.currentText
+                                    root._syncing = false
+                                }
+                                return
+                            }
+                            if ((event.key === Qt.Key_Z && (event.modifiers & Qt.ShiftModifier))
+                                    || event.key === Qt.Key_Y) {
+                                event.accepted = true
+                                if (noteStore.redo()) {
+                                    root._syncing = true
+                                    textArea.text = noteStore.currentText
+                                    root._syncing = false
+                                }
+                                return
+                            }
+                        }
                     }
 
                     onTextChanged: {

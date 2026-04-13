@@ -9,6 +9,8 @@ class QtNoteStore : public QObject {
     Q_PROPERTY(int noteCount READ noteCount NOTIFY noteCountChanged)
     Q_PROPERTY(int currentIndex READ currentIndex WRITE setCurrentIndex NOTIFY currentIndexChanged)
     Q_PROPERTY(QString currentText READ currentText WRITE setCurrentText NOTIFY currentTextChanged)
+    Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
+    Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
 
 public:
     explicit QtNoteStore(QObject *parent = nullptr);
@@ -26,12 +28,19 @@ public:
     Q_INVOKABLE void appendText(const QString &text);
     Q_INVOKABLE void reload();
 
+    bool canUndo() const;
+    bool canRedo() const;
+    Q_INVOKABLE bool undo();
+    Q_INVOKABLE bool redo();
+    Q_INVOKABLE void commitHistory();
+
     flick::NoteStore &core() { return m_core; }
 
 signals:
     void noteCountChanged();
     void currentIndexChanged();
     void currentTextChanged();
+    void historyChanged();
 
 private:
     flick::NoteStore m_core;

@@ -205,11 +205,15 @@ ApplicationWindow {
                             property rect startRect: {
                                 var _f = root.fontSize
                                 var _p = textArea.leftPadding
+                                var _h = textArea.contentHeight
+                                var _w = textArea.contentWidth
                                 return textArea.positionToRectangle(textArea.lineStartPos(lineIdx))
                             }
                             property rect lineRect: {
                                 var _f = root.fontSize
                                 var _p = textArea.leftPadding
+                                var _h = textArea.contentHeight
+                                var _w = textArea.contentWidth
                                 return textArea.visualLineRect(lineIdx)
                             }
                             property bool isChecked: modelData.checked === true

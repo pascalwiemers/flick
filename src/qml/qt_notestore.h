@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 #include "../core/core_notestore.h"
 
 class QtNoteStore : public QObject {
@@ -34,6 +35,12 @@ public:
     Q_INVOKABLE bool redo();
     Q_INVOKABLE void commitHistory();
 
+    Q_INVOKABLE QVariantList trashEntries();
+    Q_INVOKABLE bool restoreFromTrash(const QString &id);
+    Q_INVOKABLE bool purgeFromTrash(const QString &id);
+    Q_INVOKABLE void emptyTrash();
+    Q_INVOKABLE int trashCount();
+
     flick::NoteStore &core() { return m_core; }
 
 signals:
@@ -41,6 +48,7 @@ signals:
     void currentIndexChanged();
     void currentTextChanged();
     void historyChanged();
+    void trashChanged();
 
 private:
     flick::NoteStore m_core;

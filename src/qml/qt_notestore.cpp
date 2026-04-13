@@ -1,4 +1,5 @@
 #include "qt_notestore.h"
+#include <QVariantMap>
 
 QtNoteStore::QtNoteStore(QObject *parent)
     : QObject(parent)
@@ -7,7 +8,32 @@ QtNoteStore::QtNoteStore(QObject *parent)
     m_core.onCurrentIndexChanged = [this]() { emit currentIndexChanged(); };
     m_core.onCurrentTextChanged = [this]() { emit currentTextChanged(); };
     m_core.onHistoryChanged = [this]() { emit historyChanged(); };
+    m_core.onTrashChanged = [this]() { emit trashChanged(); };
 }
+
+QVariantList QtNoteStore::trashEntries() {
+    QVariantList out;
+    for (auto &e : m_core.listTrash()) {
+        QVariantMap m;
+        m["id"] = QString::fromStdString(e.id);
+        m["preview"] = QString::fromStdString(e.preview);
+        m["deletedAt"] = (qlonglong)e.deletedAt;
+        out.push_back(m);
+    }
+    return out;
+}
+
+bool QtNoteStore::restoreFromTrash(const QString &id) {
+    return m_core.restoreFromTrash(id.toStdString());
+}
+
+bool QtNoteStore::purgeFromTrash(const QString &id) {
+    return m_core.purgeFromTrash(id.toStdString());
+}
+
+void QtNoteStore::emptyTrash() { m_core.emptyTrash(); }
+
+int QtNoteStore::trashCount() { return (int)m_core.listTrash().size(); }
 
 bool QtNoteStore::canUndo() const { return m_core.canUndo(); }
 bool QtNoteStore::canRedo() const { return m_core.canRedo(); }

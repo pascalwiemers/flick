@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import QtQuick.Window
 import QtCore
 
@@ -879,6 +880,10 @@ ApplicationWindow {
             onTriggered: noteStore.deleteNote(noteStore.currentIndex)
         }
         StyledMenuItem {
+            text: "Trash…"
+            onTriggered: trashDialog.open()
+        }
+        StyledMenuItem {
             text: "Grid Overview"
             onTriggered: root.toggleGridOverview()
         }
@@ -992,6 +997,175 @@ ApplicationWindow {
                 githubSync.sync()
             else
                 githubSync.startAuth()
+        }
+    }
+    Shortcut {
+        sequence: "Ctrl+Alt+Z"
+        onActivated: {
+            var entries = noteStore.trashEntries()
+            if (entries.length > 0)
+                noteStore.restoreFromTrash(entries[0].id)
+        }
+    }
+
+    Popup {
+        id: trashDialog
+        modal: true
+        focus: true
+        anchors.centerIn: parent
+        width: Math.min(520, root.width - 80)
+        height: Math.min(480, root.height - 80)
+        padding: 0
+
+        property var entries: []
+
+        function refresh() {
+            entries = noteStore.trashEntries()
+        }
+
+        Connections {
+            target: noteStore
+            function onTrashChanged() { trashDialog.refresh() }
+        }
+
+        onAboutToShow: refresh()
+
+        background: Rectangle {
+            color: root.surfaceColor
+            border.color: root.borderColor
+            border.width: 1
+            radius: 4
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 36
+                color: "transparent"
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Trash (" + trashDialog.entries.length + ")"
+                    color: root.textColor
+                    font.family: root.monoFont
+                    font.pixelSize: 13
+                }
+                Text {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Empty Trash"
+                    color: trashDialog.entries.length > 0 ? root.accentColor : root.dimTextColor
+                    font.family: root.monoFont
+                    font.pixelSize: 12
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: trashDialog.entries.length > 0
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: noteStore.emptyTrash()
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: root.borderColor
+            }
+
+            ListView {
+                id: trashList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: trashDialog.entries
+                boundsBehavior: Flickable.StopAtBounds
+
+                delegate: Rectangle {
+                    width: ListView.view.width
+                    height: 48
+                    color: ma.containsMouse ? root.hoverColor : "transparent"
+
+                    MouseArea {
+                        id: ma
+                        anchors.fill: parent
+                        hoverEnabled: true
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        spacing: 8
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: modelData.preview && modelData.preview.length > 0
+                                  ? modelData.preview : "(empty)"
+                            color: root.textColor
+                            font.family: root.monoFont
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            text: {
+                                var age = Math.floor(Date.now() / 1000) - modelData.deletedAt
+                                if (age < 60) return age + "s"
+                                if (age < 3600) return Math.floor(age / 60) + "m"
+                                if (age < 86400) return Math.floor(age / 3600) + "h"
+                                return Math.floor(age / 86400) + "d"
+                            }
+                            color: root.dimTextColor
+                            font.family: root.monoFont
+                            font.pixelSize: 11
+                        }
+
+                        Text {
+                            text: "Restore"
+                            color: root.accentColor
+                            font.family: root.monoFont
+                            font.pixelSize: 12
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: noteStore.restoreFromTrash(modelData.id)
+                            }
+                        }
+
+                        Text {
+                            text: "Delete"
+                            color: root.dimTextColor
+                            font.family: root.monoFont
+                            font.pixelSize: 12
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: noteStore.purgeFromTrash(modelData.id)
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 1
+                        color: root.borderColor
+                    }
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    visible: trashDialog.entries.length === 0
+                    text: "Trash empty"
+                    color: root.dimTextColor
+                    font.family: root.monoFont
+                    font.pixelSize: 12
+                }
+            }
         }
     }
 

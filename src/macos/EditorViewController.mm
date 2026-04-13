@@ -765,7 +765,12 @@ static NSFont *monoFont(CGFloat size) {
     BOOL _swipeDirectionLocked;  // once we pick left/right, lock it
     id _keyMonitor;
     id _scrollMonitor;
+    NSWindow *_trashWindow;
+    NSStackView *_trashStack;
 }
+- (void)showTrashWindow;
+- (void)refreshTrashWindow;
+- (void)loadCurrentNote;
 @end
 
 @implementation EditorViewController
@@ -816,7 +821,7 @@ static NSFont *monoFont(CGFloat size) {
     _textView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _textView.delegate = self;
     _textView.richText = NO;
-    _textView.allowsUndo = YES;
+    _textView.allowsUndo = NO;
     _textView.textContainerInset = NSMakeSize(MAX(24, round(24 * _fontSize / 14.0)), 32);
     _textView.drawsBackground = YES;
     _textView.continuousSpellCheckingEnabled = NO;
@@ -924,6 +929,14 @@ static NSFont *monoFont(CGFloat size) {
     [self setupScrollMonitor];
     [self setupPasteboardMonitor];
 
+    [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSWindowDidResignKeyNotification
+                    object:self.view.window
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification * _Nonnull note) {
+        if (self->_noteStore) self->_noteStore->commitHistory();
+    }];
+
     // If GitHub sync is connected, do initial sync
     if (_syncManager && _syncManager.authenticated) {
         [_syncManager sync];
@@ -939,13 +952,38 @@ static NSFont *monoFont(CGFloat size) {
         BOOL cmd = (event.modifierFlags & NSEventModifierFlagCommand) != 0;
         BOOL shift = (event.modifierFlags & NSEventModifierFlagShift) != 0;
 
+        BOOL option = (event.modifierFlags & NSEventModifierFlagOption) != 0;
+
+        if (cmd && option && !shift) {
+            NSString *chars = event.charactersIgnoringModifiers;
+            if ([chars isEqualToString:@"z"] || [chars isEqualToString:@"Ω"]) {
+                auto entries = s->_noteStore->listTrash();
+                if (!entries.empty()) s->_noteStore->restoreFromTrash(entries[0].id);
+                [s loadCurrentNote];
+                return nil;
+            }
+        }
+
         if (cmd && shift) {
             NSString *chars = event.charactersIgnoringModifiers;
             if ([chars isEqualToString:@"v"]) { [s toggleAutoPaste]; return nil; }
+            if ([chars isEqualToString:@"z"] || [chars isEqualToString:@"Z"]) {
+                if (s->_noteStore->redo()) [s loadCurrentNote];
+                return nil;
+            }
+            if ([chars isEqualToString:@"t"] || [chars isEqualToString:@"T"]) {
+                [s showTrashWindow];
+                return nil;
+            }
         }
 
         if (cmd && !shift) {
             NSString *chars = event.charactersIgnoringModifiers;
+            if ([chars isEqualToString:@"z"]) {
+                s->_noteStore->commitHistory();
+                if (s->_noteStore->undo()) [s loadCurrentNote];
+                return nil;
+            }
             if ([chars isEqualToString:@"n"]) { [s createNewNote]; return nil; }
             if ([chars isEqualToString:@"w"]) { [s deleteCurrentNote]; return nil; }
             if ([chars isEqualToString:@"d"]) { [s toggleDarkMode]; return nil; }
@@ -1635,6 +1673,7 @@ static NSFont *monoFont(CGFloat size) {
 
     [contextMenu addItemWithTitle:@"New Note" action:@selector(createNewNote) keyEquivalent:@""];
     [contextMenu addItemWithTitle:@"Delete Note" action:@selector(deleteCurrentNote) keyEquivalent:@""];
+    [contextMenu addItemWithTitle:@"Trash…" action:@selector(showTrashWindow) keyEquivalent:@""];
     [contextMenu addItemWithTitle:@"Grid Overview" action:@selector(toggleGridOverview) keyEquivalent:@""];
     [contextMenu addItem:[NSMenuItem separatorItem]];
 
@@ -1674,6 +1713,127 @@ static NSFont *monoFont(CGFloat size) {
 - (void)increaseFontAction { [self changeFontSize:2]; }
 - (void)decreaseFontAction { [self changeFontSize:-2]; }
 - (void)quitApp { [NSApp terminate:nil]; }
+
+// ─── Trash window ──────────────────────────────────────────────
+- (void)showTrashWindow {
+    if (!_trashWindow) {
+        NSRect frame = NSMakeRect(0, 0, 480, 400);
+        _trashWindow = [[NSWindow alloc] initWithContentRect:frame
+                                                   styleMask:(NSWindowStyleMaskTitled |
+                                                              NSWindowStyleMaskClosable |
+                                                              NSWindowStyleMaskResizable)
+                                                     backing:NSBackingStoreBuffered
+                                                       defer:NO];
+        _trashWindow.title = @"Trash";
+        _trashWindow.releasedWhenClosed = NO;
+
+        NSView *content = [[NSView alloc] initWithFrame:frame];
+        _trashWindow.contentView = content;
+
+        NSButton *emptyBtn = [NSButton buttonWithTitle:@"Empty Trash"
+                                                target:self
+                                                action:@selector(emptyTrashAction)];
+        emptyBtn.translatesAutoresizingMaskIntoConstraints = NO;
+        [content addSubview:emptyBtn];
+
+        NSScrollView *sv = [[NSScrollView alloc] init];
+        sv.translatesAutoresizingMaskIntoConstraints = NO;
+        sv.hasVerticalScroller = YES;
+        sv.drawsBackground = NO;
+        sv.borderType = NSNoBorder;
+
+        _trashStack = [[NSStackView alloc] init];
+        _trashStack.orientation = NSUserInterfaceLayoutOrientationVertical;
+        _trashStack.alignment = NSLayoutAttributeLeading;
+        _trashStack.spacing = 4;
+        _trashStack.translatesAutoresizingMaskIntoConstraints = NO;
+
+        NSView *doc = [[NSView alloc] init];
+        [doc addSubview:_trashStack];
+        sv.documentView = doc;
+        [content addSubview:sv];
+
+        [NSLayoutConstraint activateConstraints:@[
+            [emptyBtn.topAnchor constraintEqualToAnchor:content.topAnchor constant:10],
+            [emptyBtn.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-12],
+            [sv.topAnchor constraintEqualToAnchor:emptyBtn.bottomAnchor constant:10],
+            [sv.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:12],
+            [sv.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-12],
+            [sv.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-12],
+            [_trashStack.topAnchor constraintEqualToAnchor:doc.topAnchor constant:4],
+            [_trashStack.leadingAnchor constraintEqualToAnchor:doc.leadingAnchor constant:4],
+            [_trashStack.trailingAnchor constraintEqualToAnchor:doc.trailingAnchor constant:-4],
+            [_trashStack.bottomAnchor constraintLessThanOrEqualToAnchor:doc.bottomAnchor constant:-4],
+        ]];
+    }
+    [self refreshTrashWindow];
+    [_trashWindow center];
+    [_trashWindow makeKeyAndOrderFront:nil];
+}
+
+- (void)refreshTrashWindow {
+    if (!_trashStack) return;
+    for (NSView *v in [_trashStack.arrangedSubviews copy]) {
+        [_trashStack removeArrangedSubview:v];
+        [v removeFromSuperview];
+    }
+    auto entries = _noteStore->listTrash();
+    if (entries.empty()) {
+        NSTextField *empty = [NSTextField labelWithString:@"Trash empty"];
+        empty.textColor = [NSColor secondaryLabelColor];
+        [_trashStack addArrangedSubview:empty];
+        return;
+    }
+    for (auto &e : entries) {
+        NSString *idStr = [NSString stringWithUTF8String:e.id.c_str()];
+        NSString *preview = [NSString stringWithUTF8String:e.preview.c_str()];
+        if (preview.length == 0) preview = @"(empty)";
+
+        NSStackView *row = [[NSStackView alloc] init];
+        row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+        row.spacing = 8;
+
+        NSTextField *label = [NSTextField labelWithString:preview];
+        label.lineBreakMode = NSLineBreakByTruncatingTail;
+        [label setContentCompressionResistancePriority:250 forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [label setContentHuggingPriority:250 forOrientation:NSLayoutConstraintOrientationHorizontal];
+
+        NSButton *restore = [NSButton buttonWithTitle:@"Restore" target:self action:@selector(restoreTrashRow:)];
+        restore.identifier = idStr;
+        restore.bezelStyle = NSBezelStyleRounded;
+
+        NSButton *del = [NSButton buttonWithTitle:@"Delete" target:self action:@selector(purgeTrashRow:)];
+        del.identifier = idStr;
+        del.bezelStyle = NSBezelStyleRounded;
+
+        [row addArrangedSubview:label];
+        [row addArrangedSubview:restore];
+        [row addArrangedSubview:del];
+        [_trashStack addArrangedSubview:row];
+
+        [NSLayoutConstraint activateConstraints:@[
+            [row.widthAnchor constraintEqualToAnchor:_trashStack.widthAnchor],
+        ]];
+    }
+}
+
+- (void)restoreTrashRow:(NSButton *)sender {
+    std::string tid = sender.identifier.UTF8String;
+    _noteStore->restoreFromTrash(tid);
+    [self loadCurrentNote];
+    [self refreshTrashWindow];
+}
+
+- (void)purgeTrashRow:(NSButton *)sender {
+    std::string tid = sender.identifier.UTF8String;
+    _noteStore->purgeFromTrash(tid);
+    [self refreshTrashWindow];
+}
+
+- (void)emptyTrashAction {
+    _noteStore->emptyTrash();
+    [self refreshTrashWindow];
+}
 
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];

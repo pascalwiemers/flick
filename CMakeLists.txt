@@ -91,6 +91,13 @@ if(FLICK_BUILD_TESTS AND NOT APPLE)
     )
     target_include_directories(flick_core_history_test PRIVATE src)
     add_test(NAME flick_core_history COMMAND flick_core_history_test)
+
+    add_executable(flick_core_trash_test
+        tests/core_notestore_trash_test.cpp
+        src/core/core_notestore.cpp
+    )
+    target_include_directories(flick_core_trash_test PRIVATE src)
+    add_test(NAME flick_core_trash COMMAND flick_core_trash_test)
 endif()
 
 install(TARGETS flick DESTINATION bin)

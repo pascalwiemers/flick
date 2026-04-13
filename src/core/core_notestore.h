@@ -12,6 +12,12 @@ class NoteStore {
 public:
     using NoteId = std::uint64_t;
 
+    struct TrashEntry {
+        std::string id;            // filename under trash/
+        std::string preview;       // first line, truncated
+        std::int64_t deletedAt;    // unix seconds
+    };
+
     NoteStore();
 
     int noteCount() const;
@@ -37,17 +43,27 @@ public:
     bool redo();
     void commitHistory();
 
+    std::vector<TrashEntry> listTrash();
+    bool restoreFromTrash(const std::string &id);
+    bool purgeFromTrash(const std::string &id);
+    void emptyTrash();
+
     // Callbacks for UI notification
     std::function<void()> onNoteCountChanged;
     std::function<void()> onCurrentIndexChanged;
     std::function<void()> onCurrentTextChanged;
     std::function<void()> onHistoryChanged;
+    std::function<void()> onTrashChanged;
 
 private:
     void loadNotes();
     void saveAll();
     void saveSingle(int index);
     std::string storagePath() const;
+    std::string trashPath() const;
+    std::string makeTrashId(const std::string &content) const;
+    void moveToTrash(const std::string &content);
+    void pruneTrash();
     NoteId nextId();
     void assertInvariants() const;
 

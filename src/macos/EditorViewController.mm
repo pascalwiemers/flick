@@ -151,6 +151,25 @@ static NSFont *monoFont(CGFloat size) {
 
 - (BOOL)isFlipped { return YES; }
 
+- (NSRect)checkboxRectForLine:(int)lineIndex {
+    NSRect lineRect = [self rectForLine:lineIndex];
+    if (NSIsEmptyRect(lineRect)) return NSZeroRect;
+
+    NSFont *f = monoFont(self.fontSize);
+    CGFloat cap = f.capHeight;
+    CGFloat asc = f.ascender;
+    CGFloat boxSize = round(cap * 1.15);
+    // Baseline from line rect top + ascender (view is flipped).
+    CGFloat baselineY = lineRect.origin.y + asc;
+    CGFloat opticalCenterY = baselineY - cap / 2.0;
+    CGFloat boxY = round(opticalCenterY - boxSize / 2.0);
+    CGFloat inset = self.textView.textContainerInset.width;
+    CGFloat pad = MAX(8.0, boxSize * 0.4);
+    CGFloat boxX = round(inset - boxSize - pad);
+    if (boxX < 4) boxX = 4;
+    return NSMakeRect(boxX, boxY, boxSize, boxSize);
+}
+
 - (NSView *)hitTest:(NSPoint)point {
     // Only intercept clicks on list checkboxes; pass everything else through to the text view
     if (!self.listEngine->active()) return nil;
@@ -158,11 +177,10 @@ static NSFont *monoFont(CGFloat size) {
     NSPoint local = [self convertPoint:point fromView:self.superview];
     for (auto &item : self.listEngine->items()) {
         if (item.type != "item") continue;
-        NSRect lineRect = [self rectForLine:item.line];
-        CGFloat cbSize = 14;
-        NSRect cbRect = NSMakeRect(6, lineRect.origin.y + (lineRect.size.height - cbSize) / 2 - 4,
-                                   cbSize + 8, cbSize + 8);
-        if (NSPointInRect(local, cbRect))
+        NSRect cbRect = [self checkboxRectForLine:item.line];
+        if (NSIsEmptyRect(cbRect)) continue;
+        CGFloat pad = MAX(4.0, cbRect.size.width * 0.25);
+        if (NSPointInRect(local, NSInsetRect(cbRect, -pad, -pad)))
             return self;
     }
     return nil;
@@ -292,17 +310,18 @@ static NSFont *monoFont(CGFloat size) {
                                      NSCompositingOperationSourceOver);
         }
 
-        CGFloat cbSize = 14;
-        CGFloat cbX = 10;
-        CGFloat cbY = lineRect.origin.y + (lineRect.size.height - cbSize) / 2;
-        NSRect cbRect = NSMakeRect(cbX, cbY, cbSize, cbSize);
+        NSRect cbRect = [self checkboxRectForLine:item.line];
+        if (NSIsEmptyRect(cbRect)) continue;
+        CGFloat cbSize = cbRect.size.width;
+        CGFloat cbX = cbRect.origin.x;
+        CGFloat cbY = cbRect.origin.y;
 
         if (item.checked) {
             NSBezierPath *path = [NSBezierPath bezierPathWithRoundedRect:cbRect xRadius:3 yRadius:3];
             [accentColor() setFill];
             [path fill];
             NSDictionary *checkAttrs = @{
-                NSFontAttributeName: [NSFont boldSystemFontOfSize:10],
+                NSFontAttributeName: [NSFont boldSystemFontOfSize:round(cbSize * 0.72)],
                 NSForegroundColorAttributeName: [NSColor whiteColor]
             };
             NSString *check = @"\u2713";
@@ -312,11 +331,14 @@ static NSFont *monoFont(CGFloat size) {
                 withAttributes:checkAttrs];
 
             NSRect endRect = [self rectForLineEnd:item.line];
-            CGFloat strikeY = lineRect.origin.y + lineRect.size.height / 2;
+            NSFont *f = monoFont(self.fontSize);
+            CGFloat baselineY = lineRect.origin.y + f.ascender;
+            CGFloat strikeY = round(baselineY - f.xHeight / 2.0);
+            CGFloat strikeStartX = self.textView.textContainerInset.width;
             CGFloat strikeEnd = endRect.origin.x;
-            if (strikeEnd > 32) {
+            if (strikeEnd > strikeStartX) {
                 NSBezierPath *strike = [NSBezierPath bezierPath];
-                [strike moveToPoint:NSMakePoint(32, strikeY)];
+                [strike moveToPoint:NSMakePoint(strikeStartX, strikeY)];
                 [strike lineToPoint:NSMakePoint(strikeEnd, strikeY)];
                 [[dimColor(self.darkMode) colorWithAlphaComponent:0.6] setStroke];
                 [strike stroke];
@@ -795,7 +817,7 @@ static NSFont *monoFont(CGFloat size) {
     _textView.delegate = self;
     _textView.richText = NO;
     _textView.allowsUndo = YES;
-    _textView.textContainerInset = NSMakeSize(24, 32);
+    _textView.textContainerInset = NSMakeSize(MAX(24, round(24 * _fontSize / 14.0)), 32);
     _textView.drawsBackground = YES;
     _textView.continuousSpellCheckingEnabled = NO;
     _textView.automaticQuoteSubstitutionEnabled = NO;
@@ -1193,6 +1215,7 @@ static NSFont *monoFont(CGFloat size) {
     NSFont *font = monoFont(_fontSize);
     _textView.font = font;
     _textView.textColor = textColor(_darkMode);
+    _textView.textContainerInset = NSMakeSize(MAX(24, round(24 * _fontSize / 14.0)), 32);
 
     if (_textView.string.length > 0) {
         NSDictionary *attrs = @{

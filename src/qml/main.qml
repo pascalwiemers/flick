@@ -29,6 +29,12 @@ ApplicationWindow {
     readonly property color inactiveBorder: darkMode ? "#2f2f2f" : "#d5d5d5"
     readonly property color accentColor:    "#4a9eff"
 
+    FontMetrics {
+        id: editorFontMetrics
+        font.family: root.monoFont
+        font.pixelSize: root.fontSize
+    }
+
     Settings {
         id: windowSettings
         property alias x: root.x
@@ -122,6 +128,7 @@ ApplicationWindow {
                     selectionColor: root.selectionColor
                     selectedTextColor: darkMode ? "#ffffff" : "#000000"
                     padding: 32
+                    leftPadding: Math.max(32, Math.round(32 * root.fontSize / 14))
                     font.family: root.monoFont
                     font.pixelSize: root.fontSize
                     background: Rectangle { color: "transparent" }
@@ -167,6 +174,97 @@ ApplicationWindow {
                         var nl = t.indexOf('\n', pos)
                         return nl < 0 ? t.length : nl
                     }
+
+                    // Helper: stable visual rect for line N.
+                    function visualLineRect(lineIndex) {
+                        var startPos = lineStartPos(lineIndex)
+                        var startRect = positionToRectangle(startPos)
+                        var nextStartPos = lineStartPos(lineIndex + 1)
+                        var nextRect = positionToRectangle(nextStartPos)
+                        var h = nextStartPos > startPos ? (nextRect.y - startRect.y) : startRect.height
+                        if (h <= 0)
+                            h = startRect.height
+                        return Qt.rect(startRect.x, startRect.y, startRect.width, h)
+                    }
+                }
+
+                // List checkbox overlay in same Flickable content layer as text.
+                // This keeps text + checkboxes on same scroll/zoom geometry.
+                Item {
+                    visible: !root.markdownPreview && listEngine.active
+                    width: textArea.width
+                    height: flickableA.contentHeight
+                    z: 2
+
+                    Repeater {
+                        model: listEngine.items
+
+                        Item {
+                            visible: modelData.type === "item"
+                            property int lineIdx: modelData.line
+                            property rect startRect: {
+                                var _f = root.fontSize
+                                var _p = textArea.leftPadding
+                                return textArea.positionToRectangle(textArea.lineStartPos(lineIdx))
+                            }
+                            property rect lineRect: {
+                                var _f = root.fontSize
+                                var _p = textArea.leftPadding
+                                return textArea.visualLineRect(lineIdx)
+                            }
+                            property bool isChecked: modelData.checked === true
+
+                            Rectangle {
+                                id: checkBox
+                                property real boxSize: Math.round(parent.startRect.height * 0.72)
+                                property real pad: Math.max(6, boxSize * 0.35)
+                                x: Math.max(4, Math.round(textArea.leftPadding - boxSize - pad))
+                                y: Math.round(parent.startRect.y + (parent.startRect.height - boxSize) / 2)
+                                width: boxSize
+                                height: boxSize
+                                radius: 3
+                                color: parent.isChecked ? root.accentColor : "transparent"
+                                border.color: parent.isChecked ? root.accentColor : root.dimTextColor
+                                border.width: 1.5
+
+                                Text {
+                                    visible: parent.parent.isChecked
+                                    anchors.centerIn: parent
+                                    text: "\u2713"
+                                    color: "#ffffff"
+                                    font.pixelSize: Math.round(checkBox.boxSize * 0.72)
+                                    font.bold: true
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    anchors.margins: -Math.max(4, checkBox.boxSize * 0.25)
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        var newText = listEngine.toggleCheck(textArea.text, modelData.line)
+                                        if (newText !== textArea.text) {
+                                            var pos = textArea.cursorPosition
+                                            textArea.text = newText
+                                            textArea.cursorPosition = Math.min(pos, textArea.text.length)
+                                        }
+                                    }
+                                    z: 100
+                                }
+                            }
+
+                            Rectangle {
+                                visible: parent.isChecked
+                                property rect endRect: textArea.positionToRectangle(textArea.lineEndPos(parent.lineIdx))
+                                property real strikeStartX: textArea.leftPadding
+                                x: strikeStartX
+                                y: Math.round(parent.startRect.y + parent.startRect.height / 2)
+                                width: Math.max(0, endRect.x - strikeStartX)
+                                height: 1
+                                color: root.dimTextColor
+                                opacity: 0.6
+                            }
+                        }
+                    }
                 }
             }
 
@@ -182,8 +280,11 @@ ApplicationWindow {
                     Item {
                         visible: !modelData.isComment
                         property int lineIdx: modelData.line
-                        property rect lineRect: textArea.positionToRectangle(
-                            textArea.lineEndPos(lineIdx))
+                        property rect lineRect: {
+                            var _f = root.fontSize
+                            var _p = textArea.leftPadding
+                            return textArea.positionToRectangle(textArea.lineEndPos(lineIdx))
+                        }
                         property real scrollY: lineRect.y - flickableA.contentY
 
                         // Separator line for running totals
@@ -227,10 +328,16 @@ ApplicationWindow {
                     Rectangle {
                         visible: modelData.isComment
                         property int lineIdx: modelData.line
-                        property rect startRect: textArea.positionToRectangle(
-                            textArea.lineStartPos(lineIdx))
-                        property rect endRect: textArea.positionToRectangle(
-                            textArea.lineEndPos(lineIdx))
+                        property rect startRect: {
+                            var _f = root.fontSize
+                            var _p = textArea.leftPadding
+                            return textArea.positionToRectangle(textArea.lineStartPos(lineIdx))
+                        }
+                        property rect endRect: {
+                            var _f = root.fontSize
+                            var _p = textArea.leftPadding
+                            return textArea.positionToRectangle(textArea.lineEndPos(lineIdx))
+                        }
 
                         x: 0
                         y: startRect.y - flickableA.contentY
@@ -243,118 +350,7 @@ ApplicationWindow {
             }
         }
 
-        // --- List checkbox overlays (outside Flickable, clipped by panelA) ---
-        Item {
-            visible: !root.markdownPreview && listEngine.active
-            anchors.fill: parent
-            clip: true
-
-            Repeater {
-                model: listEngine.items
-
-                Item {
-                    visible: modelData.type === "item"
-                    property int lineIdx: modelData.line
-                    property rect lineRect: textArea.positionToRectangle(
-                        textArea.lineStartPos(lineIdx))
-                    property real scrollY: lineRect.y - flickableA.contentY
-                    property bool isChecked: modelData.checked === true
-
-                    // Checkbox
-                    Rectangle {
-                        id: checkBox
-                        x: 10
-                        y: parent.scrollY + (parent.lineRect.height - height) / 2
-                        width: 14
-                        height: 14
-                        radius: 3
-                        color: parent.isChecked ? root.accentColor : "transparent"
-                        border.color: parent.isChecked ? root.accentColor : root.dimTextColor
-                        border.width: 1.5
-
-                        // Checkmark
-                        Text {
-                            visible: parent.parent.isChecked
-                            anchors.centerIn: parent
-                            text: "\u2713"
-                            color: "#ffffff"
-                            font.pixelSize: 10
-                            font.bold: true
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent
-                            anchors.margins: -4
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                var newText = listEngine.toggleCheck(textArea.text, modelData.line)
-                                if (newText !== textArea.text) {
-                                    var pos = textArea.cursorPosition
-                                    textArea.text = newText
-                                    textArea.cursorPosition = Math.min(pos, textArea.text.length)
-                                }
-                            }
-                            z: 100
-                        }
-                    }
-
-                    // Strikethrough overlay for checked items
-                    Rectangle {
-                        visible: parent.isChecked
-                        property rect endRect: textArea.positionToRectangle(
-                            textArea.lineEndPos(parent.lineIdx))
-                        x: 32
-                        y: parent.scrollY + parent.lineRect.height / 2
-                        width: Math.max(0, endRect.x - flickableA.contentX - 32)
-                        height: 1
-                        color: root.dimTextColor
-                        opacity: 0.6
-                    }
-                }
-            }
-
-            // Dimming for checked items
-            Repeater {
-                model: listEngine.items
-
-                Rectangle {
-                    visible: modelData.checked === true
-                    property int lineIdx: modelData.line
-                    property rect startRect: textArea.positionToRectangle(
-                        textArea.lineStartPos(lineIdx))
-                    property rect endRect: textArea.positionToRectangle(
-                        textArea.lineEndPos(lineIdx))
-
-                    x: 0
-                    y: startRect.y - flickableA.contentY
-                    width: panelA.width
-                    height: Math.max(endRect.y + endRect.height - startRect.y, startRect.height)
-                    color: root.bgColor
-                    opacity: 0.4
-                }
-            }
-
-            // Comment dimming for list comments (//)
-            Repeater {
-                model: listEngine.items
-
-                Rectangle {
-                    visible: modelData.type === "comment"
-                    property int lineIdx: modelData.line
-                    property rect startRect: textArea.positionToRectangle(
-                        textArea.lineStartPos(lineIdx))
-                    property rect endRect: textArea.positionToRectangle(
-                        textArea.lineEndPos(lineIdx))
-
-                    x: 0
-                    y: startRect.y - flickableA.contentY
-                    width: panelA.width
-                    height: Math.max(endRect.y + endRect.height - startRect.y, startRect.height)
-                    color: root.bgColor
-                    opacity: 0.6
-                }
-            }
-        }
+        // List checkbox overlay moved into Flickable content layer above.
 
         // --- Stats overlay (below text content) ---
         Item {
@@ -367,8 +363,11 @@ ApplicationWindow {
                     var lines = textArea.text.split('\n')
                     return lines.length - 1
                 }
-                property rect lastLineRect: textArea.positionToRectangle(
-                    textArea.lineEndPos(lastLine))
+                property rect lastLineRect: {
+                    var _f = root.fontSize
+                    var _p = textArea.leftPadding
+                    return textArea.positionToRectangle(textArea.lineEndPos(lastLine))
+                }
 
                 x: 24
                 y: lastLineRect.y + lastLineRect.height + 24 - flickableA.contentY

@@ -297,6 +297,7 @@ void GitHubSync::restoreFromRepo()
 {
     QDir repo(repoPath());
     QDir notes(notesPath());
+    restoreTrashFromRepo();
     QStringList repoFiles = repo.entryList({"*.txt"}, QDir::Files, QDir::Name);
     if (repoFiles.isEmpty())
         return;
@@ -323,6 +324,25 @@ void GitHubSync::restoreFromRepo()
     emit notesRestored();
 }
 
+void GitHubSync::restoreTrashFromRepo()
+{
+    QDir repo(repoPath());
+    QDir repoTrash(repo.filePath("trash"));
+    if (!repoTrash.exists())
+        return;
+
+    QDir local(notesPath());
+    if (!local.exists("trash"))
+        local.mkpath("trash");
+    QDir localTrash(local.filePath("trash"));
+
+    for (const auto &f : repoTrash.entryList({"*.txt"}, QDir::Files, QDir::Name)) {
+        QString dest = localTrash.filePath(f);
+        if (!QFile::exists(dest))
+            QFile::copy(repoTrash.filePath(f), dest);
+    }
+}
+
 void GitHubSync::syncOnQuit()
 {
     if (m_token.isEmpty() || m_username.isEmpty() || !m_repoReady)
@@ -335,6 +355,7 @@ void GitHubSync::syncOnQuit()
         repo.remove(f);
     for (const auto &f : notes.entryList({"*.txt"}, QDir::Files))
         QFile::copy(notes.filePath(f), repo.filePath(f));
+    copyTrashToRepo();
 
     QProcess git;
     git.setWorkingDirectory(repoPath());
@@ -365,6 +386,7 @@ void GitHubSync::doSync()
     for (const auto &f : notes.entryList({"*.txt"}, QDir::Files)) {
         QFile::copy(notes.filePath(f), repo.filePath(f));
     }
+    copyTrashToRepo();
 
     // Git add, commit, push
     runGit({"add", "-A"}, [this](int, const QString &) {
@@ -391,6 +413,26 @@ void GitHubSync::doSync()
             });
         });
     });
+}
+
+void GitHubSync::copyTrashToRepo()
+{
+    QDir notes(notesPath());
+    QDir repo(repoPath());
+    if (!repo.exists("trash"))
+        repo.mkpath("trash");
+
+    QDir localTrash(notes.filePath("trash"));
+    QDir repoTrash(repo.filePath("trash"));
+
+    for (const auto &f : repoTrash.entryList({"*.txt"}, QDir::Files))
+        repoTrash.remove(f);
+
+    if (!localTrash.exists())
+        return;
+
+    for (const auto &f : localTrash.entryList({"*.txt"}, QDir::Files, QDir::Name))
+        QFile::copy(localTrash.filePath(f), repoTrash.filePath(f));
 }
 
 void GitHubSync::runGit(const QStringList &args, std::function<void(int, const QString &)> callback)

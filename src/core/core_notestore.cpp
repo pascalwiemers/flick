@@ -468,12 +468,16 @@ static std::int64_t parseTrashTimestamp(const std::string &filename)
     return (std::int64_t)t;
 }
 
-static std::string firstLine(const std::string &content, size_t cap = 80)
+static std::string trashPreview(const std::string &content, size_t cap = 280)
 {
-    size_t nl = content.find('\n');
-    std::string line = (nl == std::string::npos) ? content : content.substr(0, nl);
-    if (line.size() > cap) line = line.substr(0, cap);
-    return line;
+    std::string out;
+    out.reserve(std::min(content.size(), cap));
+    for (char c : content) {
+        if (c == '\r') continue;
+        out += c;
+        if (out.size() >= cap) break;
+    }
+    return out;
 }
 
 void NoteStore::pruneTrash()
@@ -529,7 +533,7 @@ std::vector<NoteStore::TrashEntry> NoteStore::listTrash()
         if (ifs) {
             std::ostringstream ss;
             ss << ifs.rdbuf();
-            te.preview = firstLine(ss.str());
+            te.preview = trashPreview(ss.str());
         }
         result.push_back(std::move(te));
     }

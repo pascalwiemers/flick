@@ -48,7 +48,9 @@ private:
     void ensureRepo();
     void cloneOrPull();
     void restoreFromRepo();
+    void restoreTrashFromRepo();
     void doSync();
+    void copyTrashToRepo();
     void runGit(const QStringList &args, std::function<void(int, const QString &)> callback);
     QString repoPath() const;
     QString notesPath() const;

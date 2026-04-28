@@ -1784,36 +1784,65 @@ static NSFont *monoFont(CGFloat size) {
         [_trashStack addArrangedSubview:empty];
         return;
     }
+    NSStackView *currentRow = nil;
+    int col = 0;
     for (auto &e : entries) {
+        if (!currentRow || col == 3) {
+            currentRow = [[NSStackView alloc] init];
+            currentRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+            currentRow.alignment = NSLayoutAttributeTop;
+            currentRow.spacing = 8;
+            [_trashStack addArrangedSubview:currentRow];
+            [NSLayoutConstraint activateConstraints:@[
+                [currentRow.widthAnchor constraintEqualToAnchor:_trashStack.widthAnchor],
+            ]];
+            col = 0;
+        }
+
         NSString *idStr = [NSString stringWithUTF8String:e.id.c_str()];
         NSString *preview = [NSString stringWithUTF8String:e.preview.c_str()];
         if (preview.length == 0) preview = @"(empty)";
 
-        NSStackView *row = [[NSStackView alloc] init];
-        row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-        row.spacing = 8;
+        NSStackView *card = [[NSStackView alloc] init];
+        card.orientation = NSUserInterfaceLayoutOrientationVertical;
+        card.spacing = 8;
+        card.edgeInsets = NSEdgeInsetsMake(10, 10, 10, 10);
+        card.wantsLayer = YES;
+        card.layer.backgroundColor = surfaceColor(_darkMode).CGColor;
+        card.layer.borderColor = inactiveBorder(_darkMode).CGColor;
+        card.layer.borderWidth = 1;
+        card.layer.cornerRadius = 4;
 
         NSTextField *label = [NSTextField labelWithString:preview];
+        label.maximumNumberOfLines = 6;
         label.lineBreakMode = NSLineBreakByTruncatingTail;
-        [label setContentCompressionResistancePriority:250 forOrientation:NSLayoutConstraintOrientationHorizontal];
-        [label setContentHuggingPriority:250 forOrientation:NSLayoutConstraintOrientationHorizontal];
+        label.font = monoFont(12);
+        label.textColor = textColor(_darkMode);
+        [label setContentCompressionResistancePriority:250 forOrientation:NSLayoutConstraintOrientationVertical];
+
+        NSStackView *actions = [[NSStackView alloc] init];
+        actions.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+        actions.spacing = 8;
 
         NSButton *restore = [NSButton buttonWithTitle:@"Restore" target:self action:@selector(restoreTrashRow:)];
         restore.identifier = idStr;
         restore.bezelStyle = NSBezelStyleRounded;
 
-        NSButton *del = [NSButton buttonWithTitle:@"Delete" target:self action:@selector(purgeTrashRow:)];
+        NSButton *del = [NSButton buttonWithTitle:@"Delete Forever" target:self action:@selector(purgeTrashRow:)];
         del.identifier = idStr;
         del.bezelStyle = NSBezelStyleRounded;
 
-        [row addArrangedSubview:label];
-        [row addArrangedSubview:restore];
-        [row addArrangedSubview:del];
-        [_trashStack addArrangedSubview:row];
+        [actions addArrangedSubview:restore];
+        [actions addArrangedSubview:del];
+        [card addArrangedSubview:label];
+        [card addArrangedSubview:actions];
+        [currentRow addArrangedSubview:card];
 
         [NSLayoutConstraint activateConstraints:@[
-            [row.widthAnchor constraintEqualToAnchor:_trashStack.widthAnchor],
+            [card.widthAnchor constraintGreaterThanOrEqualToConstant:140],
+            [card.heightAnchor constraintGreaterThanOrEqualToConstant:120],
         ]];
+        col++;
     }
 }
 

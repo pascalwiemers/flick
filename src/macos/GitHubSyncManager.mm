@@ -321,6 +321,8 @@ static NSString *const kClientID = @"Ov23li5Q9HZMR3fdyzsp";
     NSString *repoPath = [self repoPath];
     NSString *notesPath = [self notesPath];
 
+    [self restoreTrashFromRepo];
+
     NSArray *repoFiles = [self txtFilesIn:repoPath];
     if (repoFiles.count == 0) return;
 
@@ -342,6 +344,23 @@ static NSString *const kClientID = @"Ov23li5Q9HZMR3fdyzsp";
     if (self.onNotesRestored) self.onNotesRestored();
 }
 
+- (void)restoreTrashFromRepo {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *repoTrash = [[self repoPath] stringByAppendingPathComponent:@"trash"];
+    if (![fm fileExistsAtPath:repoTrash]) return;
+
+    NSString *localTrash = [[self notesPath] stringByAppendingPathComponent:@"trash"];
+    [fm createDirectoryAtPath:localTrash withIntermediateDirectories:YES attributes:nil error:nil];
+
+    for (NSString *f in [self txtFilesIn:repoTrash]) {
+        NSString *dest = [localTrash stringByAppendingPathComponent:f];
+        if (![fm fileExistsAtPath:dest]) {
+            [fm copyItemAtPath:[repoTrash stringByAppendingPathComponent:f]
+                        toPath:dest error:nil];
+        }
+    }
+}
+
 - (void)doSync {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSString *repoPath = [self repoPath];
@@ -352,6 +371,7 @@ static NSString *const kClientID = @"Ov23li5Q9HZMR3fdyzsp";
     for (NSString *f in [self txtFilesIn:notesPath])
         [fm copyItemAtPath:[notesPath stringByAppendingPathComponent:f]
                     toPath:[repoPath stringByAppendingPathComponent:f] error:nil];
+    [self copyTrashToRepo];
 
     __weak GitHubSyncManager *weakSelf = self;
     [self runGit:@[@"add", @"-A"] inDir:repoPath completion:^(int code, NSString *output) {
@@ -387,12 +407,29 @@ static NSString *const kClientID = @"Ov23li5Q9HZMR3fdyzsp";
     for (NSString *f in [self txtFilesIn:notesPath])
         [fm copyItemAtPath:[notesPath stringByAppendingPathComponent:f]
                     toPath:[repoPath stringByAppendingPathComponent:f] error:nil];
+    [self copyTrashToRepo];
 
     // Synchronous git operations
     [self runGitSync:@[@"add", @"-A"] inDir:repoPath];
     int code = [self runGitSync:@[@"commit", @"-m", @"sync"] inDir:repoPath];
     if (code != 0) return;
     [self runGitSync:@[@"push"] inDir:repoPath];
+}
+
+- (void)copyTrashToRepo {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *localTrash = [[self notesPath] stringByAppendingPathComponent:@"trash"];
+    NSString *repoTrash = [[self repoPath] stringByAppendingPathComponent:@"trash"];
+    [fm createDirectoryAtPath:repoTrash withIntermediateDirectories:YES attributes:nil error:nil];
+
+    for (NSString *f in [self txtFilesIn:repoTrash])
+        [fm removeItemAtPath:[repoTrash stringByAppendingPathComponent:f] error:nil];
+
+    if (![fm fileExistsAtPath:localTrash]) return;
+
+    for (NSString *f in [self txtFilesIn:localTrash])
+        [fm copyItemAtPath:[localTrash stringByAppendingPathComponent:f]
+                    toPath:[repoTrash stringByAppendingPathComponent:f] error:nil];
 }
 
 // ─── Helpers ────────────────────────────────────────────────────

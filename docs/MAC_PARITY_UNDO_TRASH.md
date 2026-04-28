@@ -167,6 +167,8 @@ by Linux unit tests. Spot check:
 2. Quit (`Cmd+Q`).
 3. Relaunch. Open Trash window.
 4. Entry still present → can restore.
+5. If GitHub sync is connected, the entry is mirrored to `trash/` in the
+   `flick-notes` repo on the next sync.
 
 Undo history is **intentionally not persisted**. After relaunch,
 `Cmd+Z` in a note is a no-op until new edits create history.
@@ -188,4 +190,4 @@ Undo history is **intentionally not persisted**. After relaunch,
 - Undo history is session-only (not persisted across restart).
 - Note IDs are session-only.
 - `Cmd+Z` does not undo a `Cmd+W` delete. Use Trash window or `Cmd+Option+Z`.
-- Trash is local only — not synced via GitHub.
+- Trash syncs through GitHub under `trash/`; active notes remain at the repo root.

@@ -1076,84 +1076,97 @@ ApplicationWindow {
                 color: root.borderColor
             }
 
-            ListView {
+            GridView {
                 id: trashList
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
                 model: trashDialog.entries
+                cellWidth: Math.max(160, (width - 16) / Math.min(3, Math.max(1, trashDialog.entries.length)))
+                cellHeight: cellWidth * 0.82
                 boundsBehavior: Flickable.StopAtBounds
 
-                delegate: Rectangle {
-                    width: ListView.view.width
-                    height: 48
-                    color: ma.containsMouse ? root.hoverColor : "transparent"
+                delegate: Item {
+                    width: trashList.cellWidth
+                    height: trashList.cellHeight
 
-                    MouseArea {
-                        id: ma
+                    Rectangle {
                         anchors.fill: parent
-                        hoverEnabled: true
-                    }
+                        anchors.margins: 6
+                        color: ma.containsMouse ? root.hoverColor : root.surfaceColor
+                        border.color: root.inactiveBorder
+                        border.width: 1
+                        radius: 4
+                        clip: true
 
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 8
+                        MouseArea {
+                            id: ma
+                            anchors.fill: parent
+                            hoverEnabled: true
+                        }
 
                         Text {
-                            Layout.fillWidth: true
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.bottom: actions.top
+                            anchors.margins: 12
                             text: modelData.preview && modelData.preview.length > 0
                                   ? modelData.preview : "(empty)"
                             color: root.textColor
                             font.family: root.monoFont
                             font.pixelSize: 12
+                            wrapMode: Text.Wrap
                             elide: Text.ElideRight
+                            maximumLineCount: Math.max(1, Math.floor((height - 6) / 16))
                         }
 
-                        Text {
-                            text: {
-                                var age = Math.floor(Date.now() / 1000) - modelData.deletedAt
-                                if (age < 60) return age + "s"
-                                if (age < 3600) return Math.floor(age / 60) + "m"
-                                if (age < 86400) return Math.floor(age / 3600) + "h"
-                                return Math.floor(age / 86400) + "d"
+                        RowLayout {
+                            id: actions
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            anchors.margins: 12
+                            spacing: 8
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: {
+                                    var age = Math.floor(Date.now() / 1000) - modelData.deletedAt
+                                    if (age < 60) return age + "s"
+                                    if (age < 3600) return Math.floor(age / 60) + "m"
+                                    if (age < 86400) return Math.floor(age / 3600) + "h"
+                                    return Math.floor(age / 86400) + "d"
+                                }
+                                color: root.dimTextColor
+                                font.family: root.monoFont
+                                font.pixelSize: 11
                             }
-                            color: root.dimTextColor
-                            font.family: root.monoFont
-                            font.pixelSize: 11
-                        }
 
-                        Text {
-                            text: "Restore"
-                            color: root.accentColor
-                            font.family: root.monoFont
-                            font.pixelSize: 12
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: noteStore.restoreFromTrash(modelData.id)
+                            Text {
+                                text: "Restore"
+                                color: root.accentColor
+                                font.family: root.monoFont
+                                font.pixelSize: 12
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: noteStore.restoreFromTrash(modelData.id)
+                                }
+                            }
+
+                            Text {
+                                text: "Delete Forever"
+                                color: root.dimTextColor
+                                font.family: root.monoFont
+                                font.pixelSize: 12
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: noteStore.purgeFromTrash(modelData.id)
+                                }
                             }
                         }
-
-                        Text {
-                            text: "Delete"
-                            color: root.dimTextColor
-                            font.family: root.monoFont
-                            font.pixelSize: 12
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: noteStore.purgeFromTrash(modelData.id)
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        anchors.bottom: parent.bottom
-                        width: parent.width
-                        height: 1
-                        color: root.borderColor
                     }
                 }
 
